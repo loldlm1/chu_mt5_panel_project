@@ -17,79 +17,79 @@ int OnInit()
    ChartSetInteger(0,CHART_COLOR_CHART_UP,C'41,167,165');
    ChartSetInteger(0,CHART_COLOR_CANDLE_BEAR,C'228,92,88');
    ChartSetInteger(0,CHART_COLOR_CHART_DOWN,C'228,92,88');
-   armed=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO || MQLInfoInteger(MQL_TESTER))
+   tradeExecutionEnabled=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO || MQLInfoInteger(MQL_TESTER))
          && AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
-   csmPanelStatus=armed?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
+   csmPanelStatus=tradeExecutionEnabled?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
    EventSetMillisecondTimer(250);
-   Paint();
+   RenderPanel();
    return INIT_SUCCEEDED;
 }
-void OnDeinit(const int reason){EventKillTimer();ObjectsDeleteAll(0,P);}
-void OnTimer(){Trail();Paint();}
+void OnDeinit(const int reason){EventKillTimer();ObjectsDeleteAll(0,panelObjectPrefix);}
+void OnTimer(){UpdateTrailingStops();RenderPanel();}
 void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
 {
-   if(StringFind(sp,P)!=0) return;
-   string k=StringSubstr(sp,StringLen(P));
+   if(StringFind(sp,panelObjectPrefix)!=0) return;
+   string k=StringSubstr(sp,StringLen(panelObjectPrefix));
    if(id==CHARTEVENT_OBJECT_DRAG)
    {
-      double price=Price(ObjectGetDouble(0,sp,OBJPROP_PRICE));
-      if(k=="BE") bePrice=price;
-      if(k=="Entrada" && pending) csmPlannedEntry=price;
-      if(k=="Stop loss"){plannedStopLoss=price;fixedStop=false;}
-      if(k=="Take profit"){plannedTakeProfit=price;ratioMode=false;}
-      Paint();return;
+      double price=NormalizeTradePrice(ObjectGetDouble(0,sp,OBJPROP_PRICE));
+      if(k=="BE") breakEvenPrice=price;
+      if(k=="Entrada" && pendingOrderMode) csmPlannedEntry=price;
+      if(k=="Stop loss"){plannedStopLoss=price;fixedStopMode=false;}
+      if(k=="Take profit"){plannedTakeProfit=price;riskRewardMode=false;}
+      RenderPanel();return;
    }
    if(id==CHARTEVENT_OBJECT_ENDEDIT)
    {
       if(k=="points")
       {
-         editingPoints=false;
-         if(V("points")>0){stopPoints=V("points");fixedStop=true;}
+         editingStopPoints=false;
+         if(PanelInputNumber("points")>0){stopDistancePoints=PanelInputNumber("points");fixedStopMode=true;}
       }
-      if(k=="ratio" && V(k)>0){rr=V(k);ratioMode=true;}
-      Paint();return;
+      if(k=="ratio" && PanelInputNumber(k)>0){rewardRiskRatio=PanelInputNumber(k);riskRewardMode=true;}
+      RenderPanel();return;
    }
    if(id!=CHARTEVENT_OBJECT_CLICK) return;
-   if(k=="points"){editingPoints=true;return;}
+   if(k=="points"){editingStopPoints=true;return;}
    ObjectSetInteger(0,sp,OBJPROP_STATE,false);
-   if(k!="close") closeDeadline=0;
-   if(k=="buy") Prepare(1);
-   if(k=="sell") Prepare(-1);
-   if(k=="scope"){group=!group;be=false;}
+   if(k!="close") closeConfirmationDeadline=0;
+   if(k=="buy") PrepareOrder(1);
+   if(k=="sell") PrepareOrder(-1);
+   if(k=="scope"){groupMode=!groupMode;breakEvenShown=false;}
    if(k=="mode")
    {
-      pending=!pending;
-      if(prep && pending)
+      pendingOrderMode=!pendingOrderMode;
+      if(orderPrepared && pendingOrderMode)
       {
          MqlTick q;
-         if(SymbolInfoTick(_Symbol,q)) csmPlannedEntry=Price((side>0?q.ask:q.bid)+side*stopPoints*_Point);
+         if(SymbolInfoTick(_Symbol,q)) csmPlannedEntry=NormalizeTradePrice((tradeSide>0?q.ask:q.bid)+tradeSide*stopDistancePoints*_Point);
       }
    }
-   if(k=="percent" && risk!=0){risk=0;S("riskval","1");}
-   if(k=="money" && risk!=1){risk=1;S("riskval","200");}
-   if(k=="lot" && risk!=2){risk=2;S("riskval",DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),4));}
-   if(k=="tpMode") ratioMode=!ratioMode;
-   if(k=="avg") averaging=!averaging;
-   if(k=="trail"){trailing=(trailing+1)%4;ArrayResize(tracked,0);ArrayResize(best,0);}
-   if(k=="units") {pct=!pct;S("amount",pct?"50":"100");}
+   if(k=="percent" && riskMode!=0){riskMode=0;SetPanelInputText("riskval","1");}
+   if(k=="money" && riskMode!=1){riskMode=1;SetPanelInputText("riskval","200");}
+   if(k=="lot" && riskMode!=2){riskMode=2;SetPanelInputText("riskval",DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),4));}
+   if(k=="tpMode") riskRewardMode=!riskRewardMode;
+   if(k=="avg") averagingEnabled=!averagingEnabled;
+   if(k=="trail"){trailingMode=(trailingMode+1)%4;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);}
+   if(k=="units") {percentTargetMode=!percentTargetMode;SetPanelInputText("amount",percentTargetMode?"50":"100");}
    if(k=="be")
    {
-      if(be) be=false;
+      if(breakEvenShown) breakEvenShown=false;
       else
       {
          PositionRow rows[];
-         if(Positions(rows)>0){bePrice=BreakEven(rows);be=bePrice>0;}
+         if(CollectManagedPositions(rows)>0){breakEvenPrice=CalculateBreakEvenPrice(rows);breakEvenShown=breakEvenPrice>0;}
          else csmPanelStatus="Selecciona un lado con posiciones abiertas";
       }
    }
    if(k=="send" || k=="apply" || k=="realize" || k=="close")
    {
-      if(!armed) csmPanelStatus="Ejecucion disponible solo en demo hedging";
-      else if(k=="send") Submit();
-      else if(k=="apply") Apply();
-      else if(k=="realize") Close(false);
-      else if(closeDeadline>GetTickCount64()){closeDeadline=0;Close(true);}
-      else closeDeadline=GetTickCount64()+4000;
+      if(!tradeExecutionEnabled) csmPanelStatus="Ejecucion disponible solo en demo hedging";
+      else if(k=="send") SubmitOrder();
+      else if(k=="apply") ApplyBreakEvenStops();
+      else if(k=="realize") CloseManagedPositions(false);
+      else if(closeConfirmationDeadline>GetTickCount64()){closeConfirmationDeadline=0;CloseManagedPositions(true);}
+      else closeConfirmationDeadline=GetTickCount64()+4000;
    }
-   Paint();
+   RenderPanel();
 }
