@@ -1,6 +1,8 @@
 bool ImproveStopLoss(PositionRow &row,double level)
 {
    if(!PositionSelectByTicket(row.id)) return false;
+   if(PositionGetString(POSITION_SYMBOL)!=_Symbol) return false;
+   if(!IncludeOtherPositions && PositionGetInteger(POSITION_MAGIC)!=(long)Magic) return false;
    double old=PositionGetDouble(POSITION_SL);
    int direction=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY?1:-1;
    if(old>0 && direction*(level-old)<=_Point/2) return false;
@@ -8,9 +10,19 @@ bool ImproveStopLoss(PositionRow &row,double level)
 }
 void ApplyBreakEvenStops()
 {
-   if(!breakEvenShown) return;
+   if(!breakEvenShown || !groupMode || breakEvenPrice<=0)
+   {
+      csmPanelStatus="Activa Grupo y selecciona un nivel BE valido";
+      return;
+   }
+   if(!tradeExecutionEnabled)
+   {
+      csmPanelStatus="BE: la modificacion de stops requiere Demo hedging";
+      return;
+   }
    PositionRow rows[];
    int n=CollectManagedPositions(rows), ok=0,protectedCount=0;
+   if(n==0){csmPanelStatus="BE: no hay posiciones elegibles";return;}
    for(int i=0;i<n;i++)
    {
       if(rows[i].stop>0 && tradeSide*(breakEvenPrice-rows[i].stop)<=_Point/2){protectedCount++;continue;}
