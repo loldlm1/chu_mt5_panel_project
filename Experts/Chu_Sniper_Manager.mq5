@@ -92,6 +92,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(k=="be")
    {
       if(breakEvenShown) breakEvenShown=false;
+      else if(!groupMode) csmPanelStatus="Activa Grupo para usar el break-even grupal";
       else
       {
          PositionRow rows[];
