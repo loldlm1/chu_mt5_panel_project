@@ -1,56 +1,9 @@
 #property strict
 #property version "0.12"
 #include <Trade/Trade.mqh>
-input ulong Magic=110629;
-input int ActivationPoints=250;
-input int TrailPoints=150;
-input int StepPoints=250;
-input bool IncludeOtherPositions=false;
-CTrade trade;
-string P="CSM_",csmPanelStatus="";
-int side=1, risk=1, trailing=0;
-bool group=false, pending=false, prep=false, fixedStop=false, ratioMode=true, averaging=false, pct=false, be=false, armed=false;
-double csmPlannedEntry=0,plannedStopLoss=0,plannedTakeProfit=0,stopPoints=250,rr=2,bePrice=0;
-ulong closeDeadline=0;
-bool editingPoints=false;
-ulong tracked[];
-double best[];
-#define CSM_PANEL_NAVY C'20,30,43'
-color ink=C'225,232,241', gold=C'255,215,49', blue=C'70,169,255', red=C'255,100,100', green=C'42,192,179';
+#include "ChuSniper/State.mqh"
+#include "ChuSniper/ChartObjects.mqh"
 
-string N(string key){return P+key;}
-void Box(string key,ENUM_OBJECT type,int x,int y,int w,int h,string label,color bg,color fg)
-{
-   string n=N(key);
-   bool fresh=ObjectFind(0,n)<0;
-   if(fresh) ObjectCreate(0,n,type,0,0,0);
-   ObjectSetInteger(0,n,OBJPROP_XDISTANCE,x);
-   ObjectSetInteger(0,n,OBJPROP_YDISTANCE,y);
-   ObjectSetInteger(0,n,OBJPROP_XSIZE,w);
-   ObjectSetInteger(0,n,OBJPROP_YSIZE,h);
-   ObjectSetInteger(0,n,OBJPROP_COLOR,fg);
-   ObjectSetInteger(0,n,OBJPROP_BGCOLOR,bg);
-   ObjectSetInteger(0,n,OBJPROP_BORDER_COLOR,bg);
-   ObjectSetInteger(0,n,OBJPROP_FONTSIZE,10);
-   ObjectSetInteger(0,n,OBJPROP_ZORDER,type==OBJ_RECTANGLE_LABEL?0:5);
-   ObjectSetInteger(0,n,OBJPROP_HIDDEN,true);
-   if(type!=OBJ_EDIT || fresh) ObjectSetString(0,n,OBJPROP_TEXT,label);
-}
-void B(string k,int x,int y,int w,string s,color c=CSM_PANEL_NAVY){Box(k,OBJ_BUTTON,x,y,w,25,s,c,c==gold?clrBlack:ink);}
-void E(string k,int x,int y,int w,string s){Box(k,OBJ_EDIT,x,y,w,25,s,CSM_PANEL_NAVY,ink);}
-string T(string k){return ObjectGetString(0,N(k),OBJPROP_TEXT);}
-double V(string k){string s=T(k);StringReplace(s,",",".");return StringToDouble(s);}
-void S(string k,string s){ObjectSetString(0,N(k),OBJPROP_TEXT,s);}
-void Line(string k,double p,color c,bool drag)
-{
-   string n=N(k);
-   if(ObjectFind(0,n)<0) ObjectCreate(0,n,OBJ_HLINE,0,0,p);
-   ObjectSetDouble(0,n,OBJPROP_PRICE,p);
-   ObjectSetInteger(0,n,OBJPROP_COLOR,c);
-   ObjectSetInteger(0,n,OBJPROP_STYLE,STYLE_DASH);
-   ObjectSetInteger(0,n,OBJPROP_SELECTABLE,drag);
-   ObjectSetString(0,n,OBJPROP_TOOLTIP,k);
-}
 double Price(double p)
 {
    double tick=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
@@ -311,78 +264,9 @@ void Trail()
       if(level>0 && side*(market-level)>=gap-1e-9) Improve(rows[i],level);
    }
 }
-void Paint()
-{
-   int x=12,y=20,w=460;
-   Box("bg",OBJ_RECTANGLE_LABEL,x,y,w,343,"",C'10,17,26',ink);
-   x+=8;y+=7;
-   B("title",x,y,444,"Chu Sniper Manager  |  MT5  |  DEMO");
-   y+=29;
-   B("buy",x,y,105,"Comprar",side>0?green:CSM_PANEL_NAVY);
-   B("sell",x+110,y,105,"Vender",side<0?red:CSM_PANEL_NAVY);
-   B("scope",x+220,y,110,group?"Grupo":"Individual",gold);
-   B("mode",x+335,y,109,pending?"Pendiente":"Mercado",gold);
-   y+=29;
-   B("percent",x,y,103,"% cuenta",risk==0?gold:CSM_PANEL_NAVY);
-   B("money",x+107,y,102,"Dinero",risk==1?gold:CSM_PANEL_NAVY);
-   B("lot",x+213,y,102,"Lote fijo",risk==2?gold:CSM_PANEL_NAVY);
-   E("riskval",x+319,y,125,"200");
-   y+=29;
-   B("stoplabel",x,y,105,"Stop (puntos)");
-   E("points",x+110,y,77,"250");
-   B("tpMode",x+192,y,149,ratioMode?"Take profit R:B":"Take profit Manual",gold);
-   E("ratio",x+347,y,97,"2");
-   y+=29;
-   MqlTick q;
-   ENUM_ORDER_TYPE type=Direction();
-   double lot=0,loss=0;
-   bool valid=prep && SymbolInfoTick(_Symbol,q) && Plan(q,type,lot,loss);
-   if(prep)
-   {
-      Line("Entrada",csmPlannedEntry,green,pending);Line("Stop loss",plannedStopLoss,red,true);Line("Take profit",plannedTakeProfit,blue,true);
-      if(!fixedStop && !ObjectGetInteger(0,N("points"),OBJPROP_SELECTED))
-      {
-         // Update on drag and quote changes unless the text edit is focused.
-         if(!editingPoints) S("points",DoubleToString(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point,1));
-      }
-   }
-   B("preview",x,y,444,valid?StringFormat("Lote %.4f  |  Riesgo estimado %.2f %s",lot,loss,AccountInfoString(ACCOUNT_CURRENCY)):"Prepara la orden y ajusta los niveles");
-   y+=29;
-   B("send",x,y,444,prep?"Confirmar "+OrderName(type):"Confirmar orden",valid?green:CSM_PANEL_NAVY);
-   y+=29;
-   string trailModes[]={"Apagado","Objetivos","Distancia","Hibrido"};
-   B("avg",x,y,150,averaging?"Promediacion activa":"Promediacion",averaging?gold:CSM_PANEL_NAVY);
-   B("trail",x+155,y,289,"Trailing: "+trailModes[trailing],trailing?gold:CSM_PANEL_NAVY);
-   y+=29;
-   PositionRow rows[];
-   int count=Positions(rows);
-   double floating=0;
-   for(int i=0;i<count;i++) floating+=rows[i].floatPL;
-   double at=be?AtLevel(rows,bePrice):0,bal=AccountInfoDouble(ACCOUNT_BALANCE);
-   B("scopeinfo",x,y,444,StringFormat("%s %s | %d posiciones | Flotante %+.2f",_Symbol,side>0?"Compras":"Ventas",count,floating));
-   y+=29;
-   B("be",x,y,108,"Break-even",gold);
-   B("apply",x+112,y,106,"Aplicar nivel",be?gold:CSM_PANEL_NAVY);
-   B("units",x+222,y,108,pct?"% flotante":"Dinero",gold);
-   E("amount",x+334,y,110,"100");
-   y+=29;
-   B("realize",x,y,218,"Realizar ganancia",blue);
-   B("close",x+222,y,222,closeDeadline>GetTickCount64()?"Confirmar cerrar todo":"Cerrar todo",red);
-   y+=29;
-   B("status",x,y,444,csmPanelStatus);
-   if(be && count>0)
-   {
-      Line("BE",bePrice,gold,true);
-      string preview=at==EMPTY_VALUE?"Cierre estimado no disponible":StringFormat("Cierre %+.2f %s (%+.2f%%) | Retroceso %.2f",at,AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
-      int bx=484,by=y;
-      int py=0,px=0;
-      if(ChartTimePriceToXY(0,0,iTime(_Symbol,_Period,0),bePrice,px,py)) by=MathMax(0,py-27);
-      if(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)<900){bx=x;by=y+28;}
-      Box("beinfo",OBJ_BUTTON,bx,by,405,25,preview,CSM_PANEL_NAVY,at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?blue:red);
-   }
-   else {ObjectDelete(0,N("BE"));ObjectDelete(0,N("beinfo"));}
-   ChartRedraw();
-}
+
+#include "ChuSniper/Panel.mqh"
+
 int OnInit()
 {
    trade.SetExpertMagicNumber(Magic);
