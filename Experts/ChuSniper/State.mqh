@@ -1,7 +1,7 @@
 input ulong Magic=110629;
 input int ActivationPoints=250;
 input int TrailPoints=150;
-input int StepPoints=250;
+input int StepPoints=250; // legacy preset compatibility; unused by Simple trailing
 input bool IncludeOtherPositions=false;
 CTrade trade;
 string panelObjectPrefix="CSM_",csmPanelStatus="";
