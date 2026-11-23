@@ -87,7 +87,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(k=="lot" && riskMode!=2){riskMode=2;SetPanelInputText("riskval",DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),4));}
    if(k=="tpMode") riskRewardMode=!riskRewardMode;
    if(k=="avg") averagingEnabled=!averagingEnabled;
-   if(k=="trail"){trailingMode=(trailingMode+1)%4;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);}
+   if(k=="trail"){trailingMode=(trailingMode+1)%2;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);}
    if(k=="units") {percentTargetMode=!percentTargetMode;SetPanelInputText("amount",percentTargetMode?"50":"100");}
    if(k=="be")
    {
