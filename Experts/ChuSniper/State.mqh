@@ -21,4 +21,5 @@ bool previousMouseMoveEnabled=false, chartMouseMoveConfigured=false;
 bool chartLineDragging=false, chartDragMoved=false;
 string chartDragKey="", lastReleasedChartKey="";
 double chartDragStartPrice=0;
+bool chartDragOriginalFixedStop=false, chartDragOriginalRiskReward=false;
 ulong chartDragStartedAt=0,lastReleasedChartAt=0;
