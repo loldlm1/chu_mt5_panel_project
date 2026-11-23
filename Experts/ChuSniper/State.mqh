@@ -14,3 +14,11 @@ ulong trailingPositionTickets[];
 double favorablePrices[];
 #define CSM_PANEL_NAVY C'20,30,43'
 color textColor=C'225,232,241', highlightColor=C'255,215,49', infoColor=C'70,169,255', sellColor=C'255,100,100', buyColor=C'42,192,179';
+
+// Chart interaction state: restore the user's prior chart settings on release/deinit.
+bool previousChartMouseScroll=true, chartMouseScrollCaptured=false;
+bool previousMouseMoveEnabled=false, chartMouseMoveConfigured=false;
+bool chartLineDragging=false, chartDragMoved=false;
+string chartDragKey="", lastReleasedChartKey="";
+double chartDragStartPrice=0;
+ulong chartDragStartedAt=0,lastReleasedChartAt=0;
