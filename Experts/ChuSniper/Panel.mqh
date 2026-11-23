@@ -40,7 +40,7 @@ void RenderPanel()
    y+=29;
    DrawPanelButton("send",x,y,444,orderPrepared?"Confirmar "+OrderTypeCaption(type):"Confirmar orden",valid?buyColor:CSM_PANEL_NAVY);
    y+=29;
-   string trailModes[]={"Apagado","Objetivos","Distancia","Hibrido"};
+   string trailModes[]={"Apagado","Simple"};
    DrawPanelButton("avg",x,y,150,averagingEnabled?"Promediacion activa":"Promediacion",averagingEnabled?highlightColor:CSM_PANEL_NAVY);
    DrawPanelButton("trail",x+155,y,289,"Trailing: "+trailModes[trailingMode],trailingMode?highlightColor:CSM_PANEL_NAVY);
    y+=29;
