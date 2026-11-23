@@ -24,6 +24,12 @@ void RenderPanel()
    ENUM_ORDER_TYPE type=SelectedOrderDirection();
    double lot=0,loss=0;
    bool valid=orderPrepared && SymbolInfoTick(_Symbol,q) && BuildOrderPlan(q,type,lot,loss);
+   if(!orderPrepared)
+   {
+      ObjectDelete(0,PanelObjectName("Entrada"));
+      ObjectDelete(0,PanelObjectName("Stop loss"));
+      ObjectDelete(0,PanelObjectName("Take profit"));
+   }
    if(orderPrepared)
    {
       if(pendingOrderMode) DrawPriceLevel("Entrada",csmPlannedEntry,buyColor,true);
