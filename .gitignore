@@ -1,0 +1,9 @@
+# MetaEditor generated binaries / logs
+*.ex5
+*.log
+*.bak
+*.tmp
+
+# Local Codex / agent scratch outputs
+.scratch/
+.codex/
