@@ -25,9 +25,13 @@ void DrawPriceLevel(string k,double p,color c,bool drag)
 {
    string n=PanelObjectName(k);
    if(ObjectFind(0,n)<0) ObjectCreate(0,n,OBJ_HLINE,0,0,p);
-   ObjectSetDouble(0,n,OBJPROP_PRICE,p);
+   // Do not snap an actively dragged level back to its previous timer price.
+   if(!chartLineDragging || chartDragKey!=k) ObjectSetDouble(0,n,OBJPROP_PRICE,p);
    ObjectSetInteger(0,n,OBJPROP_COLOR,c);
-   ObjectSetInteger(0,n,OBJPROP_STYLE,STYLE_DASH);
+   ObjectSetInteger(0,n,OBJPROP_STYLE,STYLE_SOLID);
+   ObjectSetInteger(0,n,OBJPROP_WIDTH,3);
    ObjectSetInteger(0,n,OBJPROP_SELECTABLE,drag);
+   if(drag && !chartLineDragging) ObjectSetInteger(0,n,OBJPROP_SELECTED,true);
+   ObjectSetInteger(0,n,OBJPROP_ZORDER,8);
    ObjectSetString(0,n,OBJPROP_TOOLTIP,k);
 }
