@@ -108,6 +108,8 @@ void CancelChartDrag()
    chartDragKey="";
    chartDragMoved=false;
    UpdateDraggedLevel(key,previous);
+   fixedStopMode=chartDragOriginalFixedStop;
+   riskRewardMode=chartDragOriginalRiskReward;
    SetChartScrollCaptured(false);
 }
 
@@ -115,8 +117,8 @@ void FinishChartDrag()
 {
    if(!chartLineDragging) return;
    string key=chartDragKey;
-   bool changed=chartDragMoved;
    double price=NormalizeTradePrice(ObjectGetDouble(0,PanelObjectName(key),OBJPROP_PRICE));
+   bool changed=chartDragMoved || MathAbs(price-chartDragStartPrice)>_Point/2;
    chartLineDragging=false;
    chartDragKey="";
    chartDragMoved=false;
@@ -143,6 +145,8 @@ void HandleChartMouseMove(const int x,const int y,const string state)
       chartDragMoved=false;
       chartDragKey=candidate;
       chartDragStartPrice=ObjectGetDouble(0,PanelObjectName(candidate),OBJPROP_PRICE);
+      chartDragOriginalFixedStop=fixedStopMode;
+      chartDragOriginalRiskReward=riskRewardMode;
       chartDragStartedAt=GetTickCount64();
       SetChartScrollCaptured(true);
    }
