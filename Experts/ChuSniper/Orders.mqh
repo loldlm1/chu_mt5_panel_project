@@ -220,29 +220,24 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice)
       csmPanelStatus="Pendiente cambio en broker: reintenta manualmente";
       return;
    }
-   if(!trade.OrderDelete(ticket) || !TradeResultCompleted())
+   if(!trade.OrderDelete(ticket) || trade.ResultRetcode()!=TRADE_RETCODE_DONE)
    {
-      csmPanelStatus="Pendiente original conservada: "+trade.ResultRetcodeDescription();
+      csmPanelStatus="Pendiente original no eliminada: "+trade.ResultRetcodeDescription();
       return;
    }
-   bool placed=false;
-   switch(newType)
-   {
-      case ORDER_TYPE_BUY_STOP: placed=trade.BuyStop(volume,price,_Symbol,stop,target,timeType,expiration,comment);break;
-      case ORDER_TYPE_BUY_LIMIT: placed=trade.BuyLimit(volume,price,_Symbol,stop,target,timeType,expiration,comment);break;
-      case ORDER_TYPE_SELL_STOP: placed=trade.SellStop(volume,price,_Symbol,stop,target,timeType,expiration,comment);break;
-      case ORDER_TYPE_SELL_LIMIT: placed=trade.SellLimit(volume,price,_Symbol,stop,target,timeType,expiration,comment);break;
-   }
-   if(placed && (trade.ResultRetcode()==TRADE_RETCODE_PLACED || TradeResultCompleted()))
+   // Send exactly the request that passed OrderCheck, preserving magic/expiry/comment.
+   MqlTradeResult result={};
+   bool placed=OrderSend(request,result);
+   if(placed && (result.retcode==TRADE_RETCODE_PLACED || result.retcode==TRADE_RETCODE_DONE))
    {
       ObjectDelete(0,PanelObjectName(key));
-      csmPanelStatus=StringFormat("Pendiente #%I64u sustituida por #%I64u",ticket,trade.ResultOrder());
+      csmPanelStatus=StringFormat("Pendiente #%I64u sustituida por #%I64u",ticket,result.order);
    }
    else
    {
       // Never auto-retry: cancellation succeeded, replacement did not.
-      csmPanelStatus=StringFormat("ALERTA: #%I64u eliminada; nueva orden NO creada: %s",
-                                   ticket,trade.ResultRetcodeDescription());
+      csmPanelStatus=StringFormat("ALERTA: #%I64u eliminada; nueva orden NO creada (%u): %s",
+                                   ticket,result.retcode,result.comment);
       Print("Chu Sniper Manager: ",csmPanelStatus);
    }
 }
