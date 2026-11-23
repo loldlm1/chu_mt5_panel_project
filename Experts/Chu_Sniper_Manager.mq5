@@ -7,6 +7,7 @@
 #include "ChuSniper/Orders.mqh"
 #include "ChuSniper/TradeManagement.mqh"
 #include "ChuSniper/Panel.mqh"
+#include "ChuSniper/ChartInteraction.mqh"
 
 int OnInit()
 {
@@ -20,24 +21,40 @@ int OnInit()
    tradeExecutionEnabled=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO || MQLInfoInteger(MQL_TESTER))
          && AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
    csmPanelStatus=tradeExecutionEnabled?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
+   InitializeChartInteraction();
    EventSetMillisecondTimer(250);
    RenderPanel();
    return INIT_SUCCEEDED;
 }
-void OnDeinit(const int reason){EventKillTimer();ObjectsDeleteAll(0,panelObjectPrefix);}
-void OnTimer(){UpdateTrailingStops();RenderPanel();}
+void OnDeinit(const int reason){EventKillTimer();RestoreChartInteraction();ObjectsDeleteAll(0,panelObjectPrefix);}
+void OnTimer()
+{
+   if(chartLineDragging && GetTickCount64()-chartDragStartedAt>20000)
+   {
+      // Avoid leaving scrolling disabled if the mouse was released off-chart.
+      CancelChartDrag();
+   }
+   UpdateTrailingStops();
+   RenderPanel();
+}
 void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
 {
+   if(id==CHARTEVENT_MOUSE_MOVE)
+   {
+      HandleChartMouseMove((int)lp,(int)dp,sp);
+      return;
+   }
    if(StringFind(sp,panelObjectPrefix)!=0) return;
    string k=StringSubstr(sp,StringLen(panelObjectPrefix));
    if(id==CHARTEVENT_OBJECT_DRAG)
    {
-      double price=NormalizeTradePrice(ObjectGetDouble(0,sp,OBJPROP_PRICE));
-      if(k=="BE") breakEvenPrice=price;
-      if(k=="Entrada" && pendingOrderMode) csmPlannedEntry=price;
-      if(k=="Stop loss"){plannedStopLoss=price;fixedStopMode=false;}
-      if(k=="Take profit"){plannedTakeProfit=price;riskRewardMode=false;}
-      RenderPanel();return;
+      if(chartLineDragging) FinishChartDrag();
+      else if(lastReleasedChartKey!=k || GetTickCount64()-lastReleasedChartAt>750)
+      {
+         ApplyChartLevelRelease(k,NormalizeTradePrice(ObjectGetDouble(0,sp,OBJPROP_PRICE)));
+         RenderPanel();
+      }
+      return;
    }
    if(id==CHARTEVENT_OBJECT_ENDEDIT)
    {
