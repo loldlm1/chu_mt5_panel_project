@@ -26,7 +26,10 @@ void RenderPanel()
    bool valid=orderPrepared && SymbolInfoTick(_Symbol,q) && BuildOrderPlan(q,type,lot,loss);
    if(orderPrepared)
    {
-      DrawPriceLevel("Entrada",csmPlannedEntry,buyColor,pendingOrderMode);DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
+      if(pendingOrderMode) DrawPriceLevel("Entrada",csmPlannedEntry,buyColor,true);
+      else ObjectDelete(0,PanelObjectName("Entrada"));
+      DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);
+      DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
       if(!fixedStopMode && !ObjectGetInteger(0,PanelObjectName("points"),OBJPROP_SELECTED))
       {
          // Update on drag and quote changes unless the text edit is focused.
@@ -68,5 +71,6 @@ void RenderPanel()
       DrawPanelObject("beinfo",OBJ_BUTTON,bx,by,405,25,preview,CSM_PANEL_NAVY,at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?infoColor:sellColor);
    }
    else {ObjectDelete(0,PanelObjectName("BE"));ObjectDelete(0,PanelObjectName("beinfo"));}
+   RenderBrokerPendingLines();
    ChartRedraw();
 }
