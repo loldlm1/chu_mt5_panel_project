@@ -1,3 +1,9 @@
+ENUM_ORDER_TYPE PendingOrderType(const bool buy,const double entry,const MqlTick &quote)
+{
+   if(buy) return entry>quote.ask?ORDER_TYPE_BUY_STOP:ORDER_TYPE_BUY_LIMIT;
+   return entry<quote.bid?ORDER_TYPE_SELL_STOP:ORDER_TYPE_SELL_LIMIT;
+}
+
 string OrderTypeCaption(ENUM_ORDER_TYPE t)
 {
    switch(t)
@@ -17,11 +23,7 @@ bool BuildOrderPlan(MqlTick &q, ENUM_ORDER_TYPE &type,double &lot,double &loss)
    if(fixedStopMode) plannedStopLoss=NormalizeTradePrice(csmPlannedEntry-tradeSide*stopDistancePoints*_Point);
    if(riskRewardMode) plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
    double gap=MathMax(_Point,SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point);
-   if(pendingOrderMode)
-   {
-      if(tradeSide>0) type=csmPlannedEntry>quote?ORDER_TYPE_BUY_STOP:ORDER_TYPE_BUY_LIMIT;
-      else type=csmPlannedEntry<quote?ORDER_TYPE_SELL_STOP:ORDER_TYPE_SELL_LIMIT;
-   }
+   if(pendingOrderMode) type=PendingOrderType(tradeSide>0,csmPlannedEntry,q);
    double one=0, reference=pendingOrderMode?csmPlannedEntry:(tradeSide>0?q.bid:q.ask);
    if(csmPlannedEntry<=0 || plannedStopLoss<=0 || plannedTakeProfit<=0 || tradeSide*(csmPlannedEntry-plannedStopLoss)<=0 || tradeSide*(reference-plannedStopLoss)<gap-1e-9 ||
       tradeSide*(plannedTakeProfit-csmPlannedEntry)<=0 || tradeSide*(plannedTakeProfit-reference)<gap-1e-9 || (pendingOrderMode && MathAbs(csmPlannedEntry-quote)<gap-1e-9) ||
@@ -162,8 +164,7 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice)
    MqlTick quote;
    if(!SymbolInfoTick(_Symbol,quote)){csmPanelStatus="Sin cotizacion para editar pendiente";return;}
    double price=NormalizeTradePrice(wantedPrice);
-   ENUM_ORDER_TYPE newType=buy?(price>quote.ask?ORDER_TYPE_BUY_STOP:ORDER_TYPE_BUY_LIMIT):
-                               (price<quote.bid?ORDER_TYPE_SELL_STOP:ORDER_TYPE_SELL_LIMIT);
+   ENUM_ORDER_TYPE newType=PendingOrderType(buy,price,quote);
    string reason="";
    if(!PendingLevelValid(buy,price,stop,target,quote,reason))
    {
