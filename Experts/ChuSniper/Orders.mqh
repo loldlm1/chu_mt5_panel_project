@@ -15,83 +15,139 @@ string OrderTypeCaption(ENUM_ORDER_TYPE t)
       default:return tradeSide>0?"compra a mercado":"venta a mercado";
    }
 }
-// Shared sizing and price validation, without changing the caller's draft.
+// Shared exact sizing from the effective stop. No group exposure ceiling.
 bool CalculateOrderSize(const int direction,const bool pending,const MqlTick &q,
                         const double entry,const double stop,const double target,double &lot,double &loss)
 {
+   BrokerRules b;
+   if(!ReadBrokerRules(b) || !ValidBrokerQuote(q)) return false;
    ENUM_ORDER_TYPE side=direction>0?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
-   double quote=direction>0?q.ask:q.bid;
+   ENUM_ORDER_TYPE type=pending?PendingOrderType(direction>0,entry,q):side;
+   double opening=direction>0?q.ask:q.bid;
    double reference=pending?entry:(direction>0?q.bid:q.ask);
-   double gap=MathMax(_Point,SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point);
+   if(!EntryTypeAllowed(type,b) || !OnBrokerGrid(entry,b) || !OnBrokerGrid(stop,b) ||
+      !OnBrokerGrid(target,b) || direction*(entry-stop)<=0 || direction*(target-entry)<=0 ||
+      direction*(reference-stop)<b.stopGap-1e-9 || direction*(target-reference)<b.stopGap-1e-9 ||
+      (pending && PendingOutward(type)*(entry-opening)<b.stopGap-1e-9)) return false;
    double one=0;
-   if(!MathIsValidNumber(entry) || !MathIsValidNumber(stop) || !MathIsValidNumber(target) ||
-      entry<=0 || stop<=0 || target<=0 || quote<=0 || reference<=0 ||
-      direction*(entry-stop)<=0 || direction*(reference-stop)<gap-1e-9 ||
-      direction*(target-entry)<=0 || direction*(target-reference)<gap-1e-9 ||
-      (pending && MathAbs(entry-quote)<gap-1e-9) ||
-      !OrderCalcProfit(side,_Symbol,1,entry,stop,one) || one>=0) return false;
+   if(!OrderCalcProfit(side,_Symbol,1,entry,stop,one) || !MathIsValidNumber(one) || one>=0) return false;
    double budget=PanelInputNumber("riskval");
    if(riskMode==0) budget*=AccountInfoDouble(ACCOUNT_BALANCE)/100;
    if(!MathIsValidNumber(budget) || budget<=0) return false;
-   double max=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
-   lot=riskMode==2?RoundVolumeDown(budget):RoundVolumeDown(MathMin(max,budget/-one));
+   double max=RemainingDirectionalVolume(direction,b);
+   double desired=riskMode==2?budget:MathMin(max,budget/-one);
+   lot=NormalizeDouble(MathFloor(desired/b.stepVolume+1e-9)*b.stepVolume,8);
    loss=-one*lot;
-   return lot>=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN)-1e-9 && lot<=max+1e-9 &&
-          (riskMode!=2 || MathAbs(lot-budget)<1e-8);
+   return lot>=b.minVolume-1e-9 && lot<=max+1e-9 && MathIsValidNumber(loss) &&
+          (riskMode==2?MathAbs(lot-budget)<1e-8:loss<=budget+1e-8);
 }
 bool BuildOrderPlan(MqlTick &q, ENUM_ORDER_TYPE &type,double &lot,double &loss)
 {
    type=SelectedOrderDirection();
-   double quote=tradeSide>0?q.ask:q.bid;
-   if(!pendingOrderMode) csmPlannedEntry=NormalizeTradePrice(quote);
+   if(!pendingOrderMode) csmPlannedEntry=NormalizeTradePrice(tradeSide>0?q.ask:q.bid);
    if(pendingOrderMode) type=PendingOrderType(tradeSide>0,csmPlannedEntry,q);
    return CalculateOrderSize(tradeSide,pendingOrderMode,q,csmPlannedEntry,plannedStopLoss,plannedTakeProfit,lot,loss);
 }
-
-// One market request per deliberate click, independent of scope and order plan.
+// Explicit preparation/edit/confirm only. Rendering never moves locked SL/TP.
+bool AdaptManualPlan(const bool rebuildRatio,bool &adjusted)
+{
+   adjusted=false;
+   if(!orderPrepared) return false;
+   BrokerRules b;MqlTick q;
+   if(!ReadBrokerRules(b) || !SymbolInfoTick(_Symbol,q) || !ValidBrokerQuote(q))
+   {csmPanelStatus="Sin cotizacion o reglas del broker";return false;}
+   ENUM_ORDER_TYPE type=pendingOrderMode?PendingOrderType(tradeSide>0,csmPlannedEntry,q):SelectedOrderDirection();
+   double entry=csmPlannedEntry,sl=plannedStopLoss,tp=plannedTakeProfit;
+   if(!ConstrainEntryPlan(tradeSide,type,q,b,riskRewardMode,rewardRiskRatio,rebuildRatio,entry,sl,tp))
+   {csmPanelStatus="No hay niveles validos del broker";return false;}
+   adjusted=(pendingOrderMode && PriceChanged(entry,csmPlannedEntry,b)) ||
+      PriceChanged(sl,plannedStopLoss,b) || PriceChanged(tp,plannedTakeProfit,b);
+   csmPlannedEntry=entry;plannedStopLoss=sl;plannedTakeProfit=tp;
+   if(adjusted) csmPanelStatus="Broker ajusto niveles | SL "+PanelNumberText(MathAbs(entry-sl)/_Point)+" pts";
+   return true;
+}
+bool BuildProtectedRequest(const ENUM_ORDER_TYPE type,const double entry,const double sl,
+                           const double tp,const double lot,const string comment,MqlTradeRequest &request)
+{
+   BrokerRules b;
+   if(!TradePermissionsAllowed() || !ReadBrokerRules(b) || !EntryTypeAllowed(type,b) ||
+      !OnBrokerGrid(entry,b) || !OnBrokerGrid(sl,b) || !OnBrokerGrid(tp,b) || lot<=0)
+   {csmPanelStatus="Broker: permisos o niveles invalidos";return false;}
+   ENUM_ORDER_TYPE_FILLING fill;
+   if(!SelectEntryFilling(type,b,fill)){csmPanelStatus="Broker: filling no soportado";return false;}
+   bool pending=PendingEntryType(type);
+   request.action=pending?TRADE_ACTION_PENDING:TRADE_ACTION_DEAL;
+   request.symbol=_Symbol;request.magic=Magic;request.type=type;request.volume=lot;
+   request.price=entry;request.sl=sl;request.tp=tp;request.deviation=10;
+   request.type_filling=fill;request.type_time=ORDER_TIME_GTC;request.comment=comment;
+   return true;
+}
+// Match the returned order or deal's position identifier; never guess from last ticket.
+int VerifyEntryProtection(const MqlTradeRequest &request,const MqlTradeResult &result)
+{
+   if(result.deal>0 && HistoryDealSelect(result.deal))
+   {
+      ulong identifier=(ulong)HistoryDealGetInteger(result.deal,DEAL_POSITION_ID);
+      if(identifier>0)
+         for(int i=0;i<PositionsTotal();i++)
+         {
+            if(!PositionGetTicket(i) || (ulong)PositionGetInteger(POSITION_IDENTIFIER)!=identifier ||
+               PositionGetString(POSITION_SYMBOL)!=_Symbol || PositionGetInteger(POSITION_MAGIC)!=(long)Magic) continue;
+            return PositionGetDouble(POSITION_SL)>0 && PositionGetDouble(POSITION_TP)>0?1:-1;
+         }
+      return 0;
+   }
+   if(PendingEntryType(request.type) && result.order>0 && OrderSelect(result.order) &&
+      OrderGetString(ORDER_SYMBOL)==_Symbol && OrderGetInteger(ORDER_MAGIC)==(long)Magic)
+      return OrderGetDouble(ORDER_SL)>0 && OrderGetDouble(ORDER_TP)>0?1:-1;
+   return 0;
+}
+bool SendProtectedEntry(MqlTradeRequest &request,const string caption,const double loss,const bool adjusted)
+{
+   MqlTradeCheckResult check={};MqlTradeResult result={};
+   if(!TradePermissionsAllowed()){csmPanelStatus="Trading no permitido";return false;}
+   if(!OrderCheck(request,check) || check.retcode!=0)
+   {csmPanelStatus=StringFormat("%s: rechazo previo %u %s",caption,check.retcode,check.comment);return false;}
+   bool sent=OrderSend(request,result);
+   bool accepted=sent && (result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_DONE_PARTIAL ||
+                          result.retcode==TRADE_RETCODE_PLACED);
+   if(!accepted)
+   {
+      csmPanelStatus=StringFormat("%s: %u %s; revisa broker",caption,result.retcode,result.comment);
+      Print("CSM: ",csmPanelStatus);return false;
+   }
+   int protection=VerifyEntryProtection(request,result);
+   if(protection<0) csmPanelStatus="ALERTA: broker sin SL/TP; revisa posicion!";
+   else if(protection==0) csmPanelStatus=caption+": aceptada; SL/TP no verificado";
+   else csmPanelStatus=caption+(result.retcode==TRADE_RETCODE_PLACED?": pendiente protegida":
+                                  result.retcode==TRADE_RETCODE_DONE_PARTIAL?": parcial protegida":": protegida")+
+       " | Riesgo est. "+PanelNumberText(loss);
+   if(adjusted) csmPanelStatus+=" | SL "+PanelNumberText(MathAbs(request.price-request.sl)/_Point)+" pts ajust.";
+   PrintFormat("CSM: %s order=%I64u deal=%I64u retcode=%u SL=%s TP=%s",
+               csmPanelStatus,result.order,result.deal,result.retcode,DoubleToString(request.sl,_Digits),DoubleToString(request.tp,_Digits));
+   return true;
+}
+// One market request per deliberate click; draft and management side stay intact.
 void SubmitQuickMarket(const int direction)
 {
    string side=direction>0?"BUY":"SELL";
-   if(!tradeExecutionEnabled ||
-      AccountInfoInteger(ACCOUNT_MARGIN_MODE)!=ACCOUNT_MARGIN_MODE_RETAIL_HEDGING ||
-      (AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO && !MQLInfoInteger(MQL_TESTER)))
-   {csmPanelStatus=side+": solo Demo hedging";return;}
-   if(!MQLInfoInteger(MQL_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) ||
-      !AccountInfoInteger(ACCOUNT_TRADE_EXPERT) || !TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
-   {csmPanelStatus=side+": trading no permitido";return;}
-   MqlTick quote;
-   if(!SymbolInfoTick(_Symbol,quote) || quote.ask<=0 || quote.bid<=0 || quote.ask<quote.bid ||
+   if(!TradePermissionsAllowed()){csmPanelStatus=side+": trading no permitido";return;}
+   BrokerRules b;MqlTick q;
+   if(!ReadBrokerRules(b) || !SymbolInfoTick(_Symbol,q) || !ValidBrokerQuote(q) ||
       stopDistancePoints<=0 || rewardRiskRatio<=0)
    {csmPanelStatus=side+": cotizacion o SL/R:B invalido";return;}
-   double entry=NormalizeTradePrice(direction>0?quote.ask:quote.bid);
-   double stop=NormalizeTradePrice(entry-direction*stopDistancePoints*_Point);
-   double target=NormalizeTradePrice(entry+direction*stopDistancePoints*_Point*rewardRiskRatio);
+   ENUM_ORDER_TYPE type=direction>0?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
+   double entry=NormalizeTradePrice(direction>0?q.ask:q.bid);
+   double sl=entry-direction*stopDistancePoints*_Point,tp=entry+direction*stopDistancePoints*_Point*rewardRiskRatio;
+   double originalSL=sl,originalTP=tp;
+   if(!ConstrainEntryPlan(direction,type,q,b,true,rewardRiskRatio,true,entry,sl,tp))
+   {csmPanelStatus=side+": no hay niveles validos";return;}
    double lot=0,loss=0;
-   if(!CalculateOrderSize(direction,false,quote,entry,stop,target,lot,loss))
-   {csmPanelStatus=side+": niveles o riesgo invalidos";return;}
+   if(!CalculateOrderSize(direction,false,q,entry,sl,tp,lot,loss))
+   {csmPanelStatus=side+": riesgo/lote o limites invalidos";return;}
    MqlTradeRequest request={};
-   MqlTradeCheckResult check={};
-   MqlTradeResult result={};
-   request.action=TRADE_ACTION_DEAL;
-   request.symbol=_Symbol;request.magic=Magic;
-   request.type=direction>0?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
-   request.volume=lot;request.price=entry;request.sl=stop;request.tp=target;
-   request.deviation=10;request.comment="Chu Sniper Quick";
-   long filling=SymbolInfoInteger(_Symbol,SYMBOL_FILLING_MODE);
-   ENUM_SYMBOL_TRADE_EXECUTION execution=(ENUM_SYMBOL_TRADE_EXECUTION)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_EXEMODE);
-   if((filling&SYMBOL_FILLING_FOK)!=0) request.type_filling=ORDER_FILLING_FOK;
-   else if((filling&SYMBOL_FILLING_IOC)!=0) request.type_filling=ORDER_FILLING_IOC;
-   else if(execution!=SYMBOL_TRADE_EXECUTION_MARKET) request.type_filling=ORDER_FILLING_RETURN;
-   else {csmPanelStatus=side+": filling no soportado";return;}
-   if(!OrderCheck(request,check) || check.retcode!=0)
-   {csmPanelStatus=StringFormat("%s: rechazo previo %u %s",side,check.retcode,check.comment);return;}
-   bool sent=OrderSend(request,result);
-   if(sent && (result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_DONE_PARTIAL))
-      csmPanelStatus=StringFormat("%s ejecutado %s | #%I64u",side,PanelNumberText(result.volume),result.deal);
-   else if(sent && result.retcode==TRADE_RETCODE_PLACED)
-      csmPanelStatus=side+": solicitud aceptada; revisa broker";
-   else csmPanelStatus=StringFormat("%s: %u %s; revisa broker",side,result.retcode,result.comment);
-   Print("CSM Quick: ",csmPanelStatus);
+   if(!BuildProtectedRequest(type,entry,sl,tp,lot,"Chu Sniper Quick",request)) return;
+   SendProtectedEntry(request,side,loss,PriceChanged(sl,originalSL,b)||PriceChanged(tp,originalTP,b));
 }
 bool TradeResultCompleted()
 {
@@ -100,49 +156,38 @@ bool TradeResultCompleted()
 }
 void PrepareOrder(int dir)
 {
+   MqlTick q;
+   if(!SymbolInfoTick(_Symbol,q) || !ValidBrokerQuote(q)){csmPanelStatus="Sin cotizacion";return;}
    if(tradeSide!=dir){breakEvenShown=false;ForgetPriceLevel("BE");}
    tradeSide=dir;
-   MqlTick q;
-   if(!SymbolInfoTick(_Symbol,q)) return;
-   double quote=tradeSide>0?q.ask:q.bid;
-   csmPlannedEntry=NormalizeTradePrice(quote+(pendingOrderMode?tradeSide*stopDistancePoints*_Point:0));
-   plannedStopLoss=NormalizeTradePrice(csmPlannedEntry-tradeSide*stopDistancePoints*_Point);
-   plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*stopDistancePoints*_Point*rewardRiskRatio);
-   orderPrepared=true;
-   csmPanelStatus="Ajusta las lineas y confirma la orden";
+   double quote=dir>0?q.ask:q.bid;
+   csmPlannedEntry=NormalizeTradePrice(quote+(pendingOrderMode?dir*stopDistancePoints*_Point:0));
+   plannedStopLoss=NormalizeTradePrice(csmPlannedEntry-dir*stopDistancePoints*_Point);
+   plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+dir*stopDistancePoints*_Point*rewardRiskRatio);
+   orderPrepared=true;csmPanelStatus="Ajusta las lineas y confirma la orden";
+   bool adjusted=false;
+   if(!AdaptManualPlan(riskRewardMode,adjusted)) orderPrepared=false;
 }
 void SubmitOrder()
 {
-   MqlTick q;
-   ENUM_ORDER_TYPE type;
-   double lot=0,loss=0;
-   if(!orderPrepared || !SymbolInfoTick(_Symbol,q) || !BuildOrderPlan(q,type,lot,loss)){csmPanelStatus="Orden invalida: revisa niveles, riesgo y lote";return;}
-   if(AccountInfoInteger(ACCOUNT_MARGIN_MODE)!=ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
-   {
-      csmPanelStatus="La ejecucion de esta beta requiere cuenta demo hedging";
-      return;
-   }
+   if(!TradePermissionsAllowed()){csmPanelStatus="Trading no permitido";return;}
+   if(!orderPrepared){csmPanelStatus="Prepara una orden";return;}
+   bool adjusted=false;
+   if(!AdaptManualPlan(false,adjusted)) return;
+   if(adjusted){csmPanelStatus+=" | confirma de nuevo";return;}
+   MqlTick q;ENUM_ORDER_TYPE type;double lot=0,loss=0;
+   if(!SymbolInfoTick(_Symbol,q) || !BuildOrderPlan(q,type,lot,loss))
+   {csmPanelStatus="Orden invalida: revisa niveles, riesgo y lote";return;}
    PositionRow rows[];
    if(CollectManagedPositions(rows)>0 && !groupMode){csmPanelStatus="Activa Grupo para agregar entradas";return;}
-   bool ok=false;
-   switch(type)
-   {
-      case ORDER_TYPE_BUY:ok=trade.Buy(lot,_Symbol,0,plannedStopLoss,plannedTakeProfit,"Chu Sniper Manager");break;
-      case ORDER_TYPE_SELL:ok=trade.Sell(lot,_Symbol,0,plannedStopLoss,plannedTakeProfit,"Chu Sniper Manager");break;
-      case ORDER_TYPE_BUY_LIMIT:ok=trade.BuyLimit(lot,csmPlannedEntry,_Symbol,plannedStopLoss,plannedTakeProfit);break;
-      case ORDER_TYPE_BUY_STOP:ok=trade.BuyStop(lot,csmPlannedEntry,_Symbol,plannedStopLoss,plannedTakeProfit);break;
-      case ORDER_TYPE_SELL_LIMIT:ok=trade.SellLimit(lot,csmPlannedEntry,_Symbol,plannedStopLoss,plannedTakeProfit);break;
-      case ORDER_TYPE_SELL_STOP:ok=trade.SellStop(lot,csmPlannedEntry,_Symbol,plannedStopLoss,plannedTakeProfit);break;
-   }
-   if(ok && (TradeResultCompleted() || trade.ResultRetcode()==TRADE_RETCODE_PLACED))
+   MqlTradeRequest request={};
+   if(!BuildProtectedRequest(type,csmPlannedEntry,plannedStopLoss,plannedTakeProfit,lot,"Chu Sniper Manager",request)) return;
+   if(SendProtectedEntry(request,OrderTypeCaption(type),loss,false))
    {
       orderPrepared=false;
       ForgetPriceLevel("Entrada");ForgetPriceLevel("Stop loss");ForgetPriceLevel("Take profit");
-      csmPanelStatus="Orden aceptada: "+OrderTypeCaption(type);
    }
-   else csmPanelStatus="Orden: "+trade.ResultRetcodeDescription();
 }
-
 bool IsManagedPendingOrder(const ulong ticket)
 {
    if(!OrderSelect(ticket)) return false;

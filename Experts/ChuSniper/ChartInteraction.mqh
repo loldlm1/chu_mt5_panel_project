@@ -105,6 +105,10 @@ void FinishChartDrag()
    else if(key=="BE" && breakEvenShown) ApplyBreakEvenStops();
    else if(StringFind(key,"Pending_")==0)
       AdjustBrokerPendingOrder(key,price,initial,chartDragStartSL,chartDragStartTP);
+   else if(key=="Entrada" || key=="Stop loss" || key=="Take profit")
+   {
+      bool adjusted=false;AdaptManualPlan(false,adjusted);
+   }
    RenderPanel();
 }
 void FinishPanelGesture()

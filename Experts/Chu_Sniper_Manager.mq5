@@ -87,6 +87,10 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       }
       if(k=="riskval" || k=="amount" || k=="points" || k=="ratio")
          SetPanelInputText(k,DoubleToString(PanelInputNumber(k),16));
+      if(orderPrepared && (k=="points" || k=="ratio"))
+      {
+         bool adjusted=false;AdaptManualPlan(riskRewardMode,adjusted);
+      }
       RenderPanel();return;
    }
    if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging || panelGesture!=0 || suppressPanelClick) return;
@@ -135,6 +139,10 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       riskRewardMode=!riskRewardMode;
       if(riskRewardMode && orderPrepared)
          plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+   }
+   if(orderPrepared && (k=="mode" || k=="tpMode"))
+   {
+      bool adjusted=false;AdaptManualPlan(k=="tpMode" && riskRewardMode,adjusted);
    }
    if(k=="trail"){trailingMode=(trailingMode+1)%2;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);}
    if(k=="units") {percentTargetMode=!percentTargetMode;SetPanelInputText("amount",percentTargetMode?"50":"100");}
