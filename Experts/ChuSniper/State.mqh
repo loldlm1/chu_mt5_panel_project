@@ -3,10 +3,12 @@ input int ActivationPoints=250;
 input int TrailPoints=150;
 input int StepPoints=250; // legacy preset compatibility; unused by Simple trailing
 input bool IncludeOtherPositions=false;
+enum ENUM_CSM_PANEL_THEME { PANEL_ORIGINAL=0, PANEL_PANDORA=1 };
+input ENUM_CSM_PANEL_THEME PanelTheme=PANEL_ORIGINAL;
 CTrade trade;
 string panelObjectPrefix="CSM_",csmPanelStatus="";
 int tradeSide=1, riskMode=1, trailingMode=0;
-bool groupMode=false, pendingOrderMode=false, orderPrepared=false, fixedStopMode=false, riskRewardMode=true, percentTargetMode=false, breakEvenShown=false, tradeExecutionEnabled=false;
+bool groupMode=true, pendingOrderMode=false, orderPrepared=false, fixedStopMode=false, riskRewardMode=true, percentTargetMode=false, breakEvenShown=false, tradeExecutionEnabled=false;
 double csmPlannedEntry=0,plannedStopLoss=0,plannedTakeProfit=0,stopDistancePoints=250,rewardRiskRatio=2,breakEvenPrice=0;
 ulong closeConfirmationDeadline=0;
 bool editingStopPoints=false;
@@ -26,3 +28,12 @@ double chartDragStartSL=0, chartDragStartTP=0;
 bool chartDragOriginalFixedStop=false, chartDragOriginalRiskReward=false;
 ulong chartDragLastEvent=0, chartHoverAt=0,lastPanelRefresh=0;
 bool panelDirty=true;
+
+int panelX=12,panelY=20;
+double panelScale=1.0,panelDrawScale=1.0;
+bool panelMinimized=false;
+int panelGesture=0,panelGestureX=0,panelGestureY=0,panelGestureStartX=0,panelGestureStartY=0;
+double panelGestureStartScale=1.0;
+bool suppressPanelClick=false;
+ulong panelGestureLastEvent=0;
+string savedRiskText="200",savedPointsText="250",savedRatioText="2",savedAmountText="100";

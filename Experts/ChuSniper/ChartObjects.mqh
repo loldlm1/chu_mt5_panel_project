@@ -4,7 +4,8 @@ string PanelObjectName(string key){return panelObjectPrefix+key;}
 struct PanelObjectState
 {
    string key,label;
-   int x,y,w,h;
+   int x,y,w,h,font;
+   bool visible;
    color bg,fg;
 };
 PanelObjectState panelObjects[];
@@ -20,7 +21,7 @@ void ForgetPanelObject(const string key)
          return;
       }
 }
-void DrawPanelObject(string key,ENUM_OBJECT type,int x,int y,int w,int h,string label,color bg,color fg)
+void DrawPanelObjectRaw(string key,ENUM_OBJECT type,int x,int y,int w,int h,string label,color bg,color fg,int font=10,bool visible=true)
 {
    string n=PanelObjectName(key);
    int slot=-1;
@@ -33,12 +34,14 @@ void DrawPanelObject(string key,ENUM_OBJECT type,int x,int y,int w,int h,string 
       slot=ArraySize(panelObjects);ArrayResize(panelObjects,slot+1);
       panelObjects[slot].key=key;
       ObjectSetInteger(0,n,OBJPROP_CORNER,CORNER_LEFT_UPPER);
-      ObjectSetInteger(0,n,OBJPROP_FONTSIZE,10);
+      if(type!=OBJ_RECTANGLE_LABEL && PanelTheme==PANEL_PANDORA) ObjectSetString(0,n,OBJPROP_FONT,"Trebuchet MS");
       ObjectSetInteger(0,n,OBJPROP_ZORDER,type==OBJ_RECTANGLE_LABEL?10:100);
       ObjectSetInteger(0,n,OBJPROP_BACK,false);
       ObjectSetInteger(0,n,OBJPROP_HIDDEN,true);
       ObjectSetInteger(0,n,OBJPROP_SELECTABLE,false);
    }
+   if(type!=OBJ_RECTANGLE_LABEL && (fresh || panelObjects[slot].font!=font)) ObjectSetInteger(0,n,OBJPROP_FONTSIZE,font);
+   if(fresh || panelObjects[slot].visible!=visible) ObjectSetInteger(0,n,OBJPROP_TIMEFRAMES,visible?OBJ_ALL_PERIODS:OBJ_NO_PERIODS);
    if(fresh || panelObjects[slot].x!=x) ObjectSetInteger(0,n,OBJPROP_XDISTANCE,x);
    if(fresh || panelObjects[slot].y!=y) ObjectSetInteger(0,n,OBJPROP_YDISTANCE,y);
    if(fresh || panelObjects[slot].w!=w) ObjectSetInteger(0,n,OBJPROP_XSIZE,w);
@@ -48,18 +51,46 @@ void DrawPanelObject(string key,ENUM_OBJECT type,int x,int y,int w,int h,string 
    {
       ObjectSetInteger(0,n,OBJPROP_BGCOLOR,bg);
       ObjectSetInteger(0,n,OBJPROP_BORDER_COLOR,bg);
+      if(key=="bg") ObjectSetInteger(0,n,OBJPROP_COLOR,PanelBorder());
    }
    if(fresh || (type!=OBJ_EDIT && panelObjects[slot].label!=label)) ObjectSetString(0,n,OBJPROP_TEXT,label);
    panelObjects[slot].x=x;panelObjects[slot].y=y;
    panelObjects[slot].w=w;panelObjects[slot].h=h;
    panelObjects[slot].bg=bg;panelObjects[slot].fg=fg;panelObjects[slot].label=label;
+   panelObjects[slot].font=font;panelObjects[slot].visible=visible;
+}
+bool PanelControlVisible(const string key)
+{
+   for(int i=0;i<ArraySize(panelObjects);i++) if(panelObjects[i].key==key) return panelObjects[i].visible;
+   return false;
+}
+bool PanelHit(const string key,const int x,const int y)
+{
+   for(int i=0;i<ArraySize(panelObjects);i++)
+      if(panelObjects[i].key==key && panelObjects[i].visible)
+         return x>=panelObjects[i].x && x<panelObjects[i].x+panelObjects[i].w && y>=panelObjects[i].y && y<panelObjects[i].y+panelObjects[i].h;
+   return false;
 }
 bool PointOnPanel(const int x,const int y)
 {
    for(int i=0;i<ArraySize(panelObjects);i++)
-      if(x>=panelObjects[i].x && x<panelObjects[i].x+panelObjects[i].w &&
+      if(panelObjects[i].visible && x>=panelObjects[i].x && x<panelObjects[i].x+panelObjects[i].w &&
          y>=panelObjects[i].y && y<panelObjects[i].y+panelObjects[i].h) return true;
    return false;
+}
+bool CompactPanelControl(const string key)
+{
+   return key=="bg" || key=="title" || key=="minimize" || key=="quickBuy" ||
+          key=="quickSell" || key=="quickInfo" || key=="status";
+}
+void DrawPanelObject(string key,ENUM_OBJECT type,int x,int y,int w,int h,string label,color bg,color fg)
+{
+   bool visible=!panelMinimized || CompactPanelControl(key);
+   if(key=="status" && panelMinimized) y=94;
+   int font=(int)MathMax(7,MathMin(22,MathRound(10*panelDrawScale)));
+   DrawPanelObjectRaw(key,type,panelX+(int)MathRound(x*panelDrawScale),panelY+(int)MathRound(y*panelDrawScale),
+      (int)MathMax(1,MathRound(w*panelDrawScale)),(int)MathMax(1,MathRound(h*panelDrawScale)),
+      label,key=="bg"?PanelBackground():PanelAccent(bg),PanelInk(bg,fg),font,visible);
 }
 void DrawPanelButton(string k,int x,int y,int w,string s,color c=CSM_PANEL_NAVY){DrawPanelObject(k,OBJ_BUTTON,x,y,w,25,s,c,c==highlightColor?clrBlack:textColor);}
 void DrawPanelInput(string k,int x,int y,int w,string s){DrawPanelObject(k,OBJ_EDIT,x,y,w,25,s,CSM_PANEL_NAVY,textColor);}

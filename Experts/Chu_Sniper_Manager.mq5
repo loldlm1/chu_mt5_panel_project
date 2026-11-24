@@ -2,6 +2,7 @@
 #property version "0.130"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
+#include "ChuSniper/ChartStyle.mqh"
 #include "ChuSniper/ChartObjects.mqh"
 #include "ChuSniper/Positions.mqh"
 #include "ChuSniper/Orders.mqh"
@@ -13,11 +14,7 @@ int OnInit()
 {
    trade.SetExpertMagicNumber(Magic);
    trade.SetTypeFillingBySymbol(_Symbol);
-   ChartSetInteger(0,CHART_COLOR_BACKGROUND,C'43,44,48');
-   ChartSetInteger(0,CHART_COLOR_CANDLE_BULL,C'41,167,165');
-   ChartSetInteger(0,CHART_COLOR_CHART_UP,C'41,167,165');
-   ChartSetInteger(0,CHART_COLOR_CANDLE_BEAR,C'228,92,88');
-   ChartSetInteger(0,CHART_COLOR_CHART_DOWN,C'228,92,88');
+   ApplyPandoraChartStyle(ChartID());
    tradeExecutionEnabled=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO || MQLInfoInteger(MQL_TESTER))
          && AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
    csmPanelStatus=tradeExecutionEnabled?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
@@ -26,14 +23,15 @@ int OnInit()
    RenderPanel();
    return INIT_SUCCEEDED;
 }
-void OnDeinit(const int reason){EventKillTimer();RestoreChartInteraction();ObjectsDeleteAll(0,panelObjectPrefix);}
+void OnDeinit(const int reason){EventKillTimer();if(chartLineDragging) CancelChartDrag();FinishPanelGesture();RestoreChartInteraction();ObjectsDeleteAll(0,panelObjectPrefix);}
 void OnTimer()
 {
    ulong now=GetTickCount64();
    if(chartLineDragging && now-chartDragLastEvent>20000) CancelChartDrag();
+   if(panelGesture!=0 && now-panelGestureLastEvent>20000) FinishPanelGesture();
    // Keep server-side stop management active even during a chart gesture.
    UpdateTrailingStops();
-   if(chartLineDragging) return; // No periodic repaint during a live drag.
+   if(chartLineDragging || panelGesture!=0) return; // No periodic repaint during a live gesture.
    if(panelDirty || now-lastPanelRefresh>=750) RenderPanel();
 }
 void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
@@ -43,6 +41,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       HandleChartMouseMove((int)lp,(int)dp,sp);
       return;
    }
+   if(id==CHARTEVENT_CHART_CHANGE){panelDirty=true;return;}
    if(StringFind(sp,panelObjectPrefix)!=0) return;
    string k=StringSubstr(sp,StringLen(panelObjectPrefix));
    if(id==CHARTEVENT_OBJECT_DRAG) return; // Only mouse release commits EA drags.
@@ -68,8 +67,14 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       }
       RenderPanel();return;
    }
-   if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging) return;
-   if(PriceLevelSlot(k)>=0) return;
+   if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging || panelGesture!=0 || suppressPanelClick) return;
+   if(PriceLevelSlot(k)>=0 || !PanelControlVisible(k)) return;
+   if(k=="title" || k=="resize" || k=="bg" || k=="quickInfo" || k=="beinfo") return;
+   if(k=="minimize")
+   {
+      panelMinimized=!panelMinimized;closeConfirmationDeadline=0;RenderPanel();return;
+   }
+   if(k=="quickBuy" || k=="quickSell") return; // enabled with the next implementation slice
    if(k=="points"){editingStopPoints=true;return;}
    ObjectSetInteger(0,sp,OBJPROP_STATE,false);
    if(k!="close") closeConfirmationDeadline=0;
