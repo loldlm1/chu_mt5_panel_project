@@ -14,7 +14,15 @@ bool EstimateOrderProfit(double open,double end,double lots,double &result)
    return OrderCalcProfit(SelectedOrderDirection(),_Symbol,lots,open,end,result);
 }
 struct PositionRow {ulong id; double open,vol,stop,target,swap,cost,floatPL;};
-int CollectManagedPositions(PositionRow &rows[])
+// Only preview/accounting displays reuse fee history; trade actions read it fresh.
+struct PositionFeeCache
+{
+   ulong id,identifier,refreshed;
+   double volume,cost;
+};
+PositionFeeCache uiFeeCache[];
+void InvalidatePositionFeeCache(){ArrayResize(uiFeeCache,0);}
+int CollectManagedPositions(PositionRow &rows[],bool useUiCache=false)
 {
    ArrayResize(rows,0);
    for(int i=0;i<PositionsTotal();i++)
@@ -45,7 +53,21 @@ int CollectManagedPositions(PositionRow &rows[])
    for(int i=0;i<ArraySize(rows);i++)
    {
       if(!PositionSelectByTicket(rows[i].id)) continue;
-      if(!HistorySelectByPosition((ulong)PositionGetInteger(POSITION_IDENTIFIER))) continue;
+      ulong identifier=(ulong)PositionGetInteger(POSITION_IDENTIFIER);
+      int cached=-1;
+      if(useUiCache)
+      {
+         for(int k=0;k<ArraySize(uiFeeCache);k++) if(uiFeeCache[k].id==rows[i].id){cached=k;break;}
+         if(cached>=0 && uiFeeCache[cached].identifier==identifier &&
+            MathAbs(uiFeeCache[cached].volume-rows[i].vol)<1e-8 &&
+            GetTickCount64()-uiFeeCache[cached].refreshed<5000)
+         {
+            rows[i].cost=uiFeeCache[cached].cost;
+            rows[i].floatPL+=rows[i].cost;
+            continue;
+         }
+      }
+      if(!HistorySelectByPosition(identifier)) continue;
       double inVolume=0,fees=0;
       for(int j=0;j<HistoryDealsTotal();j++)
       {
@@ -56,6 +78,13 @@ int CollectManagedPositions(PositionRow &rows[])
       }
       if(inVolume>0) rows[i].cost=fees*rows[i].vol/inVolume;
       rows[i].floatPL+=rows[i].cost;
+      if(useUiCache)
+      {
+         if(cached<0){cached=ArraySize(uiFeeCache);ArrayResize(uiFeeCache,cached+1);}
+         uiFeeCache[cached].id=rows[i].id;uiFeeCache[cached].identifier=identifier;
+         uiFeeCache[cached].volume=rows[i].vol;uiFeeCache[cached].cost=rows[i].cost;
+         uiFeeCache[cached].refreshed=GetTickCount64();
+      }
    }
    return ArraySize(rows);
 }

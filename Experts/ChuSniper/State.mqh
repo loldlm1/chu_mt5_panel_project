@@ -6,7 +6,7 @@ input bool IncludeOtherPositions=false;
 CTrade trade;
 string panelObjectPrefix="CSM_",csmPanelStatus="";
 int tradeSide=1, riskMode=1, trailingMode=0;
-bool groupMode=false, pendingOrderMode=false, orderPrepared=false, fixedStopMode=false, riskRewardMode=true, averagingEnabled=false, percentTargetMode=false, breakEvenShown=false, tradeExecutionEnabled=false;
+bool groupMode=false, pendingOrderMode=false, orderPrepared=false, fixedStopMode=false, riskRewardMode=true, percentTargetMode=false, breakEvenShown=false, tradeExecutionEnabled=false;
 double csmPlannedEntry=0,plannedStopLoss=0,plannedTakeProfit=0,stopDistancePoints=250,rewardRiskRatio=2,breakEvenPrice=0;
 ulong closeConfirmationDeadline=0;
 bool editingStopPoints=false;
@@ -15,11 +15,14 @@ double favorablePrices[];
 #define CSM_PANEL_NAVY C'20,30,43'
 color textColor=C'225,232,241', highlightColor=C'255,215,49', infoColor=C'70,169,255', sellColor=C'255,100,100', buyColor=C'42,192,179';
 
-// Chart interaction state: restore the user's prior chart settings on release/deinit.
+// The custom mouse gesture is the only owner of an EA line drag.
 bool previousChartMouseScroll=true, chartMouseScrollCaptured=false;
 bool previousMouseMoveEnabled=false, chartMouseMoveConfigured=false;
-bool chartLineDragging=false, chartDragMoved=false;
-string chartDragKey="", lastReleasedChartKey="";
-double chartDragStartPrice=0;
+bool previousTradeLevelDrag=true, tradeLevelDragCaptured=false;
+bool chartLineDragging=false, chartLeftPressed=false;
+string chartDragKey="";
+double chartDragStartPrice=0, chartDragPrice=0, chartDragMouseOffset=0;
+double chartDragStartSL=0, chartDragStartTP=0;
 bool chartDragOriginalFixedStop=false, chartDragOriginalRiskReward=false;
-ulong chartDragStartedAt=0,lastReleasedChartAt=0;
+ulong chartDragLastEvent=0, chartHoverAt=0,lastPanelRefresh=0;
+bool panelDirty=true;

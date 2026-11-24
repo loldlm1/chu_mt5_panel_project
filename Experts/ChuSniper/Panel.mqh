@@ -26,14 +26,14 @@ void RenderPanel()
    bool valid=orderPrepared && SymbolInfoTick(_Symbol,q) && BuildOrderPlan(q,type,lot,loss);
    if(!orderPrepared)
    {
-      ObjectDelete(0,PanelObjectName("Entrada"));
-      ObjectDelete(0,PanelObjectName("Stop loss"));
-      ObjectDelete(0,PanelObjectName("Take profit"));
+      ForgetPriceLevel("Entrada");
+      ForgetPriceLevel("Stop loss");
+      ForgetPriceLevel("Take profit");
    }
    if(orderPrepared)
    {
       if(pendingOrderMode) DrawPriceLevel("Entrada",csmPlannedEntry,buyColor,true);
-      else ObjectDelete(0,PanelObjectName("Entrada"));
+      else ForgetPriceLevel("Entrada");
       DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);
       DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
       if(!fixedStopMode && !ObjectGetInteger(0,PanelObjectName("points"),OBJPROP_SELECTED))
@@ -47,11 +47,10 @@ void RenderPanel()
    DrawPanelButton("send",x,y,444,orderPrepared?"Confirmar "+OrderTypeCaption(type):"Confirmar orden",valid?buyColor:CSM_PANEL_NAVY);
    y+=29;
    string trailModes[]={"Apagado","Simple"};
-   DrawPanelButton("avg",x,y,150,averagingEnabled?"Promediacion activa":"Promediacion",averagingEnabled?highlightColor:CSM_PANEL_NAVY);
-   DrawPanelButton("trail",x+155,y,289,"Trailing: "+trailModes[trailingMode],trailingMode?highlightColor:CSM_PANEL_NAVY);
+   DrawPanelButton("trail",x,y,444,"Trailing: "+trailModes[trailingMode],trailingMode?highlightColor:CSM_PANEL_NAVY);
    y+=29;
    PositionRow rows[];
-   int count=CollectManagedPositions(rows);
+   int count=CollectManagedPositions(rows,true);
    double floating=0;
    for(int i=0;i<count;i++) floating+=rows[i].floatPL;
    double at=breakEvenShown?ProfitAtPriceLevel(rows,breakEvenPrice):0,bal=AccountInfoDouble(ACCOUNT_BALANCE);
@@ -76,7 +75,8 @@ void RenderPanel()
       if(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)<900){bx=x;by=y+28;}
       DrawPanelObject("beinfo",OBJ_BUTTON,bx,by,405,25,preview,CSM_PANEL_NAVY,at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?infoColor:sellColor);
    }
-   else {ObjectDelete(0,PanelObjectName("BE"));ObjectDelete(0,PanelObjectName("beinfo"));}
+   else {ForgetPriceLevel("BE");ForgetPanelObject("beinfo");if(count==0) breakEvenShown=false;}
    RenderBrokerPendingLines();
+   lastPanelRefresh=GetTickCount64();panelDirty=false;
    ChartRedraw();
 }

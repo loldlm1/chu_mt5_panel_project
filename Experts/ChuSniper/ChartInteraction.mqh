@@ -1,163 +1,152 @@
-// Chart-native controls are restored on release and at EA removal.
+// Mouse events own the entire custom gesture; native OBJECT_DRAG never commits.
 void InitializeChartInteraction()
 {
    previousMouseMoveEnabled=(bool)ChartGetInteger(0,CHART_EVENT_MOUSE_MOVE);
    chartMouseMoveConfigured=true;
    ChartSetInteger(0,CHART_EVENT_MOUSE_MOVE,true);
 }
-
 void SetChartScrollCaptured(const bool capture)
 {
-   if(capture)
+   if(capture && !chartMouseScrollCaptured)
    {
-      if(!chartMouseScrollCaptured)
-      {
-         previousChartMouseScroll=(bool)ChartGetInteger(0,CHART_MOUSE_SCROLL);
-         chartMouseScrollCaptured=true;
-      }
-      ChartSetInteger(0,CHART_MOUSE_SCROLL,false);
+      previousChartMouseScroll=(bool)ChartGetInteger(0,CHART_MOUSE_SCROLL);
+      chartMouseScrollCaptured=true;ChartSetInteger(0,CHART_MOUSE_SCROLL,false);
    }
-   else if(chartMouseScrollCaptured)
+   else if(!capture && chartMouseScrollCaptured)
    {
-      ChartSetInteger(0,CHART_MOUSE_SCROLL,previousChartMouseScroll);
-      chartMouseScrollCaptured=false;
+      ChartSetInteger(0,CHART_MOUSE_SCROLL,previousChartMouseScroll);chartMouseScrollCaptured=false;
    }
 }
-
+void SetTradeLevelDragCaptured(const bool capture)
+{
+   if(capture && !tradeLevelDragCaptured)
+   {
+      previousTradeLevelDrag=(bool)ChartGetInteger(0,CHART_DRAG_TRADE_LEVELS);
+      tradeLevelDragCaptured=true;ChartSetInteger(0,CHART_DRAG_TRADE_LEVELS,false);ChartRedraw();
+   }
+   else if(!capture && tradeLevelDragCaptured)
+   {
+      ChartSetInteger(0,CHART_DRAG_TRADE_LEVELS,previousTradeLevelDrag);tradeLevelDragCaptured=false;ChartRedraw();
+   }
+}
 void RestoreChartInteraction()
 {
-   SetChartScrollCaptured(false);
+   SetChartScrollCaptured(false);SetTradeLevelDragCaptured(false);
    if(chartMouseMoveConfigured)
-   {
-      ChartSetInteger(0,CHART_EVENT_MOUSE_MOVE,previousMouseMoveEnabled);
-      chartMouseMoveConfigured=false;
-   }
+   {ChartSetInteger(0,CHART_EVENT_MOUSE_MOVE,previousMouseMoveEnabled);chartMouseMoveConfigured=false;}
 }
-
 bool MouseChartPrice(const int x,const int y,double &price)
 {
-   int window=0;
-   datetime when=0;
-   if(!ChartXYToTimePrice(0,x,y,window,when,price)) return false;
-   return window==0;
+   int window=0;datetime when=0;
+   return ChartXYToTimePrice(0,x,y,window,when,price) && window==0;
 }
-
 string ChartLevelNearMouse(const int x,const int y)
 {
-   double price=0,offsetPrice=0;
-   if(!MouseChartPrice(x,y,price) || !MouseChartPrice(x,y+7,offsetPrice)) return "";
-   double tolerance=MathAbs(price-offsetPrice);
+   if(PointOnPanel(x,y)) return "";
+   double price=0,offset=0;
+   if(!MouseChartPrice(x,y,price) || !MouseChartPrice(x,y+7,offset)) return "";
+   double tolerance=MathAbs(price-offset),best=tolerance;
    string closest="";
-   double bestDistance=tolerance;
-   string keys[]={"Stop loss","Take profit","Entrada","BE"};
-   for(int i=0;i<ArraySize(keys);i++)
+   for(int i=0;i<ArraySize(priceLevels);i++)
    {
-      string key=keys[i],object=PanelObjectName(key);
-      if(key=="BE" && !breakEvenShown) continue;
-      if(key=="Entrada" && (!orderPrepared || !pendingOrderMode)) continue;
-      if((key=="Stop loss" || key=="Take profit") && !orderPrepared) continue;
-      if(ObjectFind(0,object)<0) continue;
-      double distance=MathAbs(ObjectGetDouble(0,object,OBJPROP_PRICE)-price);
-      if(distance<=bestDistance){closest=key;bestDistance=distance;}
-   }
-   string pendingPrefix=PanelObjectName("Pending_");
-   for(int i=ObjectsTotal(0)-1;i>=0;i--)
-   {
-      string object=ObjectName(0,i);
-      if(StringFind(object,pendingPrefix)!=0) continue;
-      double distance=MathAbs(ObjectGetDouble(0,object,OBJPROP_PRICE)-price);
-      if(distance<=bestDistance)
-      {
-         closest=StringSubstr(object,StringLen(panelObjectPrefix));
-         bestDistance=distance;
-      }
+      if(!priceLevels[i].draggable) continue;
+      string key=priceLevels[i].key;
+      double distance=MathAbs(priceLevels[i].price-price);
+      if(distance>tolerance) continue;
+      if(key=="BE" && breakEvenShown) return key;
+      if(distance<=best){closest=key;best=distance;}
    }
    return closest;
 }
-
-void UpdateDraggedLevel(const string key,const double price)
+void PreviewDraggedPrice(const double price)
 {
-   if(key=="Entrada" && pendingOrderMode) csmPlannedEntry=price;
-   else if(key=="Stop loss"){plannedStopLoss=price;fixedStopMode=false;}
-   else if(key=="Take profit"){plannedTakeProfit=price;riskRewardMode=false;}
-   else if(key=="BE") breakEvenPrice=price;
-}
-
-void ApplyChartLevelRelease(const string key,const double price)
-{
-   if(price<=0) return;
-   if(key=="Entrada" && pendingOrderMode && orderPrepared) csmPlannedEntry=price;
-   else if(key=="Stop loss" && orderPrepared){plannedStopLoss=price;fixedStopMode=false;}
-   else if(key=="Take profit" && orderPrepared){plannedTakeProfit=price;riskRewardMode=false;}
-   else if(key=="BE" && breakEvenShown)
+   chartDragPrice=price;
+   if(chartDragKey=="Entrada")
    {
-      breakEvenPrice=price;
-      if(groupMode) ApplyBreakEvenStops();
-      else csmPanelStatus="Activa Grupo para aplicar el nivel BE";
+      csmPlannedEntry=price;
+      plannedStopLoss=NormalizeTradePrice(chartDragStartSL+price-chartDragStartPrice);
+      plannedTakeProfit=NormalizeTradePrice(chartDragStartTP+price-chartDragStartPrice);
+      SetPriceLevel("Stop loss",plannedStopLoss);SetPriceLevel("Take profit",plannedTakeProfit);
    }
-   else if(StringFind(key,"Pending_")==0)
-      AdjustBrokerPendingOrder(key,price);
+   else if(chartDragKey=="Stop loss"){plannedStopLoss=price;fixedStopMode=false;riskRewardMode=false;}
+   else if(chartDragKey=="Take profit"){plannedTakeProfit=price;riskRewardMode=false;}
+   else if(chartDragKey=="BE") breakEvenPrice=price;
+   else if(StringFind(chartDragKey,"Pending_")==0)
+   {
+      double delta=price-chartDragStartPrice;
+      if(chartDragStartSL>0) DrawPriceLevel("DragPendingSL",NormalizeTradePrice(chartDragStartSL+delta),sellColor,false);
+      if(chartDragStartTP>0) DrawPriceLevel("DragPendingTP",NormalizeTradePrice(chartDragStartTP+delta),infoColor,false);
+   }
+   SetPriceLevel(chartDragKey,price);
+   ChartRedraw();
 }
-
+void ClearDragPreview()
+{
+   ForgetPriceLevel("DragPendingSL");ForgetPriceLevel("DragPendingTP");
+   chartLineDragging=false;chartDragKey="";
+   SetChartScrollCaptured(false);SetTradeLevelDragCaptured(false);
+   panelDirty=true;
+}
 void CancelChartDrag()
 {
    if(!chartLineDragging) return;
-   string key=chartDragKey;
-   double previous=chartDragStartPrice;
-   chartLineDragging=false;
-   chartDragKey="";
-   chartDragMoved=false;
-   UpdateDraggedLevel(key,previous);
-   fixedStopMode=chartDragOriginalFixedStop;
-   riskRewardMode=chartDragOriginalRiskReward;
-   SetChartScrollCaptured(false);
+   PreviewDraggedPrice(chartDragStartPrice);
+   fixedStopMode=chartDragOriginalFixedStop;riskRewardMode=chartDragOriginalRiskReward;
+   ClearDragPreview();
 }
-
 void FinishChartDrag()
 {
    if(!chartLineDragging) return;
    string key=chartDragKey;
-   double price=NormalizeTradePrice(ObjectGetDouble(0,PanelObjectName(key),OBJPROP_PRICE));
-   bool changed=chartDragMoved || MathAbs(price-chartDragStartPrice)>_Point/2;
-   chartLineDragging=false;
-   chartDragKey="";
-   chartDragMoved=false;
-   SetChartScrollCaptured(false);
-   lastReleasedChartKey=key;
-   lastReleasedChartAt=GetTickCount64();
-   if(changed) ApplyChartLevelRelease(key,price);
+   double price=chartDragPrice,initial=chartDragStartPrice;
+   bool changed=MathAbs(price-initial)>_Point/2;
+   ClearDragPreview();
+   if(!changed){fixedStopMode=chartDragOriginalFixedStop;riskRewardMode=chartDragOriginalRiskReward;}
+   else if(key=="BE" && breakEvenShown) ApplyBreakEvenStops();
+   else if(StringFind(key,"Pending_")==0)
+      AdjustBrokerPendingOrder(key,price,initial,chartDragStartSL,chartDragStartTP);
    RenderPanel();
 }
-
 void HandleChartMouseMove(const int x,const int y,const string state)
 {
-   bool leftPressed=(((int)StringToInteger(state))&1)!=0;
-   if(!leftPressed)
+   bool pressed=(((int)StringToInteger(state))&1)!=0;
+   bool edge=pressed && !chartLeftPressed;
+   chartLeftPressed=pressed;chartHoverAt=GetTickCount64();
+   if(chartLineDragging)
    {
-      if(chartLineDragging) FinishChartDrag();
+      chartDragLastEvent=chartHoverAt;
+      double price=0;
+      if(MouseChartPrice(x,y,price))
+      {
+         price=NormalizeTradePrice(price+chartDragMouseOffset);
+         if(price>0 && MathAbs(price-chartDragPrice)>_Point/10) PreviewDraggedPrice(price);
+      }
+      if(!pressed) FinishChartDrag();
       return;
    }
-   if(!chartLineDragging)
+   if(!pressed)
    {
-      string candidate=ChartLevelNearMouse(x,y);
-      if(candidate=="") return;
-      chartLineDragging=true;
-      chartDragMoved=false;
-      chartDragKey=candidate;
-      chartDragStartPrice=ObjectGetDouble(0,PanelObjectName(candidate),OBJPROP_PRICE);
-      chartDragOriginalFixedStop=fixedStopMode;
-      chartDragOriginalRiskReward=riskRewardMode;
-      chartDragStartedAt=GetTickCount64();
-      SetChartScrollCaptured(true);
+      SetTradeLevelDragCaptured(PointOnPanel(x,y) || ChartLevelNearMouse(x,y)!="");
+      return;
    }
-   double price=0;
-   if(!MouseChartPrice(x,y,price)) return;
-   price=NormalizeTradePrice(price);
-   if(price<=0) return;
-   if(MathAbs(price-chartDragStartPrice)>_Point/2) chartDragMoved=true;
-   if(chartDragMoved)
+   if(!edge) return;
+   string candidate=ChartLevelNearMouse(x,y);
+   if(candidate=="") return;
+   double mouse=0;
+   int slot=PriceLevelSlot(candidate);
+   if(slot<0 || !MouseChartPrice(x,y,mouse)) return;
+   chartDragStartSL=plannedStopLoss;chartDragStartTP=plannedTakeProfit;
+   if(StringFind(candidate,"Pending_")==0)
    {
-      ObjectSetDouble(0,PanelObjectName(chartDragKey),OBJPROP_PRICE,price);
-      UpdateDraggedLevel(chartDragKey,price);
+      ulong ticket=(ulong)StringToInteger(StringSubstr(candidate,StringLen("Pending_")));
+      if(!IsManagedPendingOrder(ticket)) return;
+      if(MathAbs(OrderGetDouble(ORDER_PRICE_OPEN)-priceLevels[slot].price)>_Point/2)
+      {panelDirty=true;return;}
+      chartDragStartSL=OrderGetDouble(ORDER_SL);chartDragStartTP=OrderGetDouble(ORDER_TP);
    }
+   chartDragKey=candidate;chartDragStartPrice=priceLevels[slot].price;
+   chartDragPrice=chartDragStartPrice;chartDragMouseOffset=chartDragStartPrice-mouse;
+   chartDragOriginalFixedStop=fixedStopMode;chartDragOriginalRiskReward=riskRewardMode;
+   chartDragLastEvent=chartHoverAt;chartLineDragging=true;
+   SetTradeLevelDragCaptured(true);SetChartScrollCaptured(true);ChartRedraw();
 }

@@ -20,8 +20,7 @@ bool BuildOrderPlan(MqlTick &q, ENUM_ORDER_TYPE &type,double &lot,double &loss)
    type=SelectedOrderDirection();
    double quote=tradeSide>0?q.ask:q.bid;
    if(!pendingOrderMode) csmPlannedEntry=NormalizeTradePrice(quote);
-   if(fixedStopMode) plannedStopLoss=NormalizeTradePrice(csmPlannedEntry-tradeSide*stopDistancePoints*_Point);
-   if(riskRewardMode) plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+   // Levels are committed absolute prices, not recomputed by each quote or paint.
    double gap=MathMax(_Point,SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point);
    if(pendingOrderMode) type=PendingOrderType(tradeSide>0,csmPlannedEntry,q);
    double one=0, reference=pendingOrderMode?csmPlannedEntry:(tradeSide>0?q.bid:q.ask);
@@ -42,7 +41,7 @@ bool TradeResultCompleted()
 }
 void PrepareOrder(int dir)
 {
-   if(tradeSide!=dir){breakEvenShown=false;ObjectDelete(0,PanelObjectName("BE"));}
+   if(tradeSide!=dir){breakEvenShown=false;ForgetPriceLevel("BE");}
    tradeSide=dir;
    MqlTick q;
    if(!SymbolInfoTick(_Symbol,q)) return;
@@ -65,7 +64,7 @@ void SubmitOrder()
       return;
    }
    PositionRow rows[];
-   if(CollectManagedPositions(rows)>0 && (!groupMode || !averagingEnabled)){csmPanelStatus="Activa Grupo y Promediacion para agregar entradas";return;}
+   if(CollectManagedPositions(rows)>0 && !groupMode){csmPanelStatus="Activa Grupo para agregar entradas";return;}
    bool ok=false;
    switch(type)
    {
@@ -79,7 +78,7 @@ void SubmitOrder()
    if(ok && (TradeResultCompleted() || trade.ResultRetcode()==TRADE_RETCODE_PLACED))
    {
       orderPrepared=false;
-      ObjectDelete(0,PanelObjectName("Entrada"));ObjectDelete(0,PanelObjectName("Stop loss"));ObjectDelete(0,PanelObjectName("Take profit"));
+      ForgetPriceLevel("Entrada");ForgetPriceLevel("Stop loss");ForgetPriceLevel("Take profit");
       csmPanelStatus="Orden aceptada: "+OrderTypeCaption(type);
    }
    else csmPanelStatus="Orden: "+trade.ResultRetcodeDescription();
@@ -109,14 +108,13 @@ void RenderBrokerPendingLines()
       ObjectSetString(0,PanelObjectName(key),OBJPROP_TOOLTIP,
                       StringFormat("#%I64u | %s | arrastra la entrada",ticket,OrderTypeCaption(type)));
    }
-   string prefix=PanelObjectName("Pending_");
-   for(int i=ObjectsTotal(0)-1;i>=0;i--)
+   for(int i=ArraySize(priceLevels)-1;i>=0;i--)
    {
-      string object=ObjectName(0,i);
-      if(StringFind(object,prefix)!=0) continue;
-      if(chartLineDragging && chartDragKey==StringSubstr(object,StringLen(panelObjectPrefix))) continue;
-      ulong ticket=(ulong)StringToInteger(StringSubstr(object,StringLen(prefix)));
-      if(ticket==0 || !IsManagedPendingOrder(ticket)) ObjectDelete(0,object);
+      string key=priceLevels[i].key;
+      if(StringFind(key,"Pending_")!=0) continue;
+      if(chartLineDragging && chartDragKey==key) continue;
+      ulong ticket=(ulong)StringToInteger(StringSubstr(key,StringLen("Pending_")));
+      if(ticket==0 || !IsManagedPendingOrder(ticket)) ForgetPriceLevel(key);
    }
 }
 
@@ -140,7 +138,7 @@ bool PendingLevelValid(const bool buy,const double entry,const double sl,const d
    return true;
 }
 
-void AdjustBrokerPendingOrder(const string key,const double wantedPrice)
+void AdjustBrokerPendingOrder(const string key,const double wantedPrice,const double expectedEntry,const double expectedSL,const double expectedTP)
 {
    if(!tradeExecutionEnabled)
    {
@@ -157,13 +155,24 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice)
    bool buy=(oldType==ORDER_TYPE_BUY_STOP || oldType==ORDER_TYPE_BUY_LIMIT);
    double oldPrice=OrderGetDouble(ORDER_PRICE_OPEN);
    double volume=OrderGetDouble(ORDER_VOLUME_CURRENT);
-   double stop=OrderGetDouble(ORDER_SL),target=OrderGetDouble(ORDER_TP);
+   double oldStop=OrderGetDouble(ORDER_SL),oldTarget=OrderGetDouble(ORDER_TP);
+   if(MathAbs(oldPrice-expectedEntry)>_Point/2 || MathAbs(oldStop-expectedSL)>_Point/2 ||
+      MathAbs(oldTarget-expectedTP)>_Point/2)
+   {
+      csmPanelStatus="Pendiente cambio en broker; vuelve a arrastrar";
+      return;
+   }
    ENUM_ORDER_TYPE_TIME timeType=(ENUM_ORDER_TYPE_TIME)OrderGetInteger(ORDER_TYPE_TIME);
    datetime expiration=(datetime)OrderGetInteger(ORDER_TIME_EXPIRATION);
    string comment=OrderGetString(ORDER_COMMENT);
    MqlTick quote;
    if(!SymbolInfoTick(_Symbol,quote)){csmPanelStatus="Sin cotizacion para editar pendiente";return;}
    double price=NormalizeTradePrice(wantedPrice);
+   double delta=price-oldPrice;
+   double stop=oldStop>0?NormalizeTradePrice(oldStop+delta):0;
+   double target=oldTarget>0?NormalizeTradePrice(oldTarget+delta):0;
+   if((oldStop>0 && stop<=0) || (oldTarget>0 && target<=0))
+   {csmPanelStatus="Pendiente sin cambios: SL/TP no valido";return;}
    ENUM_ORDER_TYPE newType=PendingOrderType(buy,price,quote);
    string reason="";
    if(!PendingLevelValid(buy,price,stop,target,quote,reason))
@@ -215,7 +224,11 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice)
    if(!IsManagedPendingOrder(ticket) ||
       (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE)!=oldType ||
       MathAbs(OrderGetDouble(ORDER_PRICE_OPEN)-oldPrice)>_Point/2 ||
-      MathAbs(OrderGetDouble(ORDER_VOLUME_CURRENT)-volume)>1e-8)
+      MathAbs(OrderGetDouble(ORDER_VOLUME_CURRENT)-volume)>1e-8 ||
+      MathAbs(OrderGetDouble(ORDER_SL)-oldStop)>_Point/2 ||
+      MathAbs(OrderGetDouble(ORDER_TP)-oldTarget)>_Point/2 ||
+      (ENUM_ORDER_TYPE_TIME)OrderGetInteger(ORDER_TYPE_TIME)!=timeType ||
+      (datetime)OrderGetInteger(ORDER_TIME_EXPIRATION)!=expiration)
    {
       csmPanelStatus="Pendiente cambio en broker: reintenta manualmente";
       return;
@@ -230,7 +243,7 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice)
    bool placed=OrderSend(request,result);
    if(placed && (result.retcode==TRADE_RETCODE_PLACED || result.retcode==TRADE_RETCODE_DONE))
    {
-      ObjectDelete(0,PanelObjectName(key));
+      ForgetPriceLevel(key);
       csmPanelStatus=StringFormat("Pendiente #%I64u sustituida por #%I64u",ticket,result.order);
    }
    else
