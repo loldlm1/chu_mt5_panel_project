@@ -14,6 +14,7 @@ ulong closeConfirmationDeadline=0;
 bool editingStopPoints=false;
 ulong trailingPositionTickets[];
 double favorablePrices[];
+ulong trailingRetryAfter[]; // transient server-rejection cooldown, never persisted
 #define CSM_PANEL_NAVY C'20,30,43'
 color textColor=C'225,232,241', highlightColor=C'255,215,49', infoColor=C'70,169,255', sellColor=C'255,100,100', buyColor=C'42,192,179';
 

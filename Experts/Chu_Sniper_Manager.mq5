@@ -17,6 +17,7 @@ int OnInit()
    trade.SetExpertMagicNumber(Magic);
    trade.SetTypeFillingBySymbol(_Symbol);
    ApplyPandoraChartStyle(ChartID());
+   ArrayResize(trailingRetryAfter,0);
    tradeExecutionEnabled=SupportedTradingAccount();
    csmPanelStatus=tradeExecutionEnabled?AccountModeCaption()+": selecciona Comprar o Vender":"Vista previa: requiere Demo/Real hedging";
    ObjectsDeleteAll(0,panelObjectPrefix);
@@ -74,8 +75,8 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
             stopDistancePoints=PanelInputNumber("points");fixedStopMode=true;
             if(orderPrepared)
             {
-               plannedStopLoss=NormalizeTradePrice(csmPlannedEntry-tradeSide*stopDistancePoints*_Point);
-               if(riskRewardMode) plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+               plannedStopLoss=csmPlannedEntry-tradeSide*stopDistancePoints*_Point;
+               if(riskRewardMode) plannedTakeProfit=csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio;
             }
          }
       }
@@ -143,7 +144,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    {
       bool adjusted=false;AdaptManualPlan(k=="tpMode" && riskRewardMode,adjusted);
    }
-   if(k=="trail"){trailingMode=(trailingMode+1)%2;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);}
+   if(k=="trail"){trailingMode=(trailingMode+1)%2;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);ArrayResize(trailingRetryAfter,0);}
    if(k=="units") {percentTargetMode=!percentTargetMode;SetPanelInputText("amount",percentTargetMode?"50":"100");}
    if(k=="be")
    {

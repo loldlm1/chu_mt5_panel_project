@@ -133,6 +133,15 @@ void UpdateTrailingStops()
       double level=favorablePrices[key]-direction*TrailPoints*_Point;
       if(level<=0) continue;
       // No exact retreat and no adapted retreat; the fresh ticket decides.
-      ApplyResolvedStop(ticket,level,false,direction);
+      // A rejected/frozen server response must not produce a 250ms retry storm.
+      if(ArraySize(trailingRetryAfter)!=ArraySize(trailingPositionTickets))
+      {
+         int previous=ArraySize(trailingRetryAfter);
+         ArrayResize(trailingRetryAfter,ArraySize(trailingPositionTickets));
+         for(int j=previous;j<ArraySize(trailingRetryAfter);j++) trailingRetryAfter[j]=0;
+      }
+      if(GetTickCount64()<trailingRetryAfter[key]) continue;
+      int outcome=ApplyResolvedStop(ticket,level,false,direction);
+      if(outcome<0 || outcome==4) trailingRetryAfter[key]=GetTickCount64()+3000;
    }
 }
