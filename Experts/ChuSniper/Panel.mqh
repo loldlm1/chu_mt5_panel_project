@@ -10,6 +10,23 @@ void ClampPanelGeometry()
    panelX=(int)MathMax(0,MathMin(panelX,cw>0?MathMax(0,cw-460*panelDrawScale):panelX));
    panelY=(int)MathMax(0,MathMin(panelY,ch>0?MathMax(0,ch-PanelBaseHeight()*panelDrawScale):panelY));
 }
+string QuickQuoteCaption(const bool buy,const MqlTick &quote,const bool available)
+{
+   string side=buy?"BUY":"SELL";
+   return side+"  "+(available?DoubleToString(buy?quote.ask:quote.bid,_Digits):"--");
+}
+// Quote-only update: no position/history queries or full layout on every tick.
+void RefreshQuickQuotes()
+{
+   ulong now=GetTickCount64();
+   if(chartLineDragging || panelGesture!=0 || now-lastQuickQuoteRefresh<100) return;
+   lastQuickQuoteRefresh=now;
+   MqlTick quote;
+   bool available=SymbolInfoTick(_Symbol,quote) && quote.bid>0 && quote.ask>=quote.bid;
+   bool sellChanged=UpdatePanelCaption("quickSell",QuickQuoteCaption(false,quote,available));
+   bool buyChanged=UpdatePanelCaption("quickBuy",QuickQuoteCaption(true,quote,available));
+   if(sellChanged || buyChanged) ChartRedraw();
+}
 void RenderPanel()
 {
    ClampPanelGeometry();
@@ -19,9 +36,9 @@ void RenderPanel()
    DrawPanelButton("minimize",x+412,y,32,panelMinimized?"+":"-");
    y+=29;
    MqlTick quickQuote;
-   bool hasQuote=SymbolInfoTick(_Symbol,quickQuote) && quickQuote.bid>0 && quickQuote.ask>0;
-   DrawPanelButton("quickSell",x,y,219,hasQuote?"SELL  "+DoubleToString(quickQuote.bid,_Digits):"SELL  --",sellColor);
-   DrawPanelButton("quickBuy",x+225,y,219,hasQuote?"BUY  "+DoubleToString(quickQuote.ask,_Digits):"BUY  --",buyColor);
+   bool hasQuote=SymbolInfoTick(_Symbol,quickQuote) && quickQuote.bid>0 && quickQuote.ask>=quickQuote.bid;
+   DrawPanelButton("quickSell",x,y,219,QuickQuoteCaption(false,quickQuote,hasQuote),sellColor);
+   DrawPanelButton("quickBuy",x+225,y,219,QuickQuoteCaption(true,quickQuote,hasQuote),buyColor);
    y+=29;
    // Draw inputs before the quick summary, even if hidden in compact mode.
    DrawPanelInput("riskval",x+319,123,125,savedRiskText);

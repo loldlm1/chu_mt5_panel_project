@@ -43,3 +43,5 @@ bool panelStateReady=false;
 ulong lastStateSave=0;
 
 string activePanelScope="",lastSavedPanelRecord="";
+
+ulong lastQuickQuoteRefresh=0;

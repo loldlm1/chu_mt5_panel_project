@@ -59,6 +59,18 @@ void DrawPanelObjectRaw(string key,ENUM_OBJECT type,int x,int y,int w,int h,stri
    panelObjects[slot].bg=bg;panelObjects[slot].fg=fg;panelObjects[slot].label=label;
    panelObjects[slot].font=font;panelObjects[slot].visible=visible;
 }
+bool UpdatePanelCaption(const string key,const string caption)
+{
+   for(int i=0;i<ArraySize(panelObjects);i++)
+   {
+      if(panelObjects[i].key!=key || !panelObjects[i].visible) continue;
+      if(panelObjects[i].label==caption) return false;
+      ObjectSetString(0,PanelObjectName(key),OBJPROP_TEXT,caption);
+      panelObjects[i].label=caption;
+      return true;
+   }
+   return false;
+}
 bool PanelControlVisible(const string key)
 {
    for(int i=0;i<ArraySize(panelObjects);i++) if(panelObjects[i].key==key) return panelObjects[i].visible;

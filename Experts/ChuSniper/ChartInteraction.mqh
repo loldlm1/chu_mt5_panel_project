@@ -111,6 +111,8 @@ void FinishPanelGesture()
 {
    if(panelGesture==0) return;
    panelGesture=0;
+   ObjectSetInteger(0,PanelObjectName("title"),OBJPROP_STATE,false);
+   ObjectSetInteger(0,PanelObjectName("resize"),OBJPROP_STATE,false);
    SetChartScrollCaptured(false);SetTradeLevelDragCaptured(false);
    suppressPanelClick=true;panelDirty=true;
 }

@@ -24,7 +24,7 @@ int OnInit()
    ArrayResize(panelObjects,0);ArrayResize(priceLevels,0);InvalidatePositionFeeCache();
    chartLeftPressed=false;suppressPanelClick=false;editingStopPoints=false;
    closeConfirmationDeadline=0;panelGesture=0;chartLineDragging=false;chartDragKey="";
-   panelDirty=true;lastPanelRefresh=0;
+   panelDirty=true;lastPanelRefresh=0;lastQuickQuoteRefresh=0;
    LoadPanelState();
    InitializeChartInteraction();
    EventSetMillisecondTimer(250);
@@ -41,6 +41,7 @@ void OnDeinit(const int reason)
    RestoreChartInteraction();
    ObjectsDeleteAll(0,panelObjectPrefix);
 }
+void OnTick(){RefreshQuickQuotes();}
 void OnTimer()
 {
    ulong now=GetTickCount64();
@@ -90,6 +91,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(k=="title" || k=="resize" || k=="bg" || k=="quickInfo" || k=="beinfo") return;
    if(k=="minimize")
    {
+      ObjectSetInteger(0,sp,OBJPROP_STATE,false);
       panelMinimized=!panelMinimized;closeConfirmationDeadline=0;RenderPanel();return;
    }
    if(k=="quickBuy" || k=="quickSell")
