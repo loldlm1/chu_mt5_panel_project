@@ -31,9 +31,9 @@ void OnTimer()
 {
    ulong now=GetTickCount64();
    if(chartLineDragging && now-chartDragLastEvent>20000) CancelChartDrag();
-   if(chartLineDragging) return; // Never overwrite a live drag.
-   if(tradeLevelDragCaptured && now-chartHoverAt>3000) SetTradeLevelDragCaptured(false);
+   // Keep server-side stop management active even during a chart gesture.
    UpdateTrailingStops();
+   if(chartLineDragging) return; // No periodic repaint during a live drag.
    if(panelDirty || now-lastPanelRefresh>=750) RenderPanel();
 }
 void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
@@ -127,5 +127,9 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result)
 {
-   InvalidatePositionFeeCache();panelDirty=true;
+   // SL-only modifications do not change the entry commissions.
+   if(trans.type==TRADE_TRANSACTION_DEAL_ADD || trans.type==TRADE_TRANSACTION_DEAL_UPDATE ||
+      trans.type==TRADE_TRANSACTION_DEAL_DELETE)
+      InvalidatePositionFeeCache();
+   panelDirty=true;
 }

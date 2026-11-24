@@ -104,8 +104,9 @@ void RenderBrokerPendingLines()
       ENUM_ORDER_TYPE type=(ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
       string key=StringFormat("Pending_%I64u",ticket);
       bool buy=(type==ORDER_TYPE_BUY_STOP || type==ORDER_TYPE_BUY_LIMIT);
+      bool fresh=PriceLevelSlot(key)<0;
       DrawPriceLevel(key,OrderGetDouble(ORDER_PRICE_OPEN),buy?buyColor:sellColor,true);
-      ObjectSetString(0,PanelObjectName(key),OBJPROP_TOOLTIP,
+      if(fresh) ObjectSetString(0,PanelObjectName(key),OBJPROP_TOOLTIP,
                       StringFormat("#%I64u | %s | arrastra la entrada",ticket,OrderTypeCaption(type)));
    }
    for(int i=ArraySize(priceLevels)-1;i>=0;i--)

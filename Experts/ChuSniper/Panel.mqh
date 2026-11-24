@@ -36,10 +36,12 @@ void RenderPanel()
       else ForgetPriceLevel("Entrada");
       DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);
       DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
-      if(!fixedStopMode && !ObjectGetInteger(0,PanelObjectName("points"),OBJPROP_SELECTED))
+      // The displayed points are derived from the locked absolute price.
+      // Never overwrite a user editing the distance input.
+      if(!editingStopPoints)
       {
-         // Update on drag and quote changes unless the text edit is focused.
-         if(!editingStopPoints) SetPanelInputText("points",DoubleToString(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point,1));
+         string points=DoubleToString(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point,1);
+         if(PanelInputText("points")!=points) SetPanelInputText("points",points);
       }
    }
    DrawPanelButton("preview",x,y,444,valid?StringFormat("Lote %.4f  |  Riesgo estimado %.2f %s",lot,loss,AccountInfoString(ACCOUNT_CURRENCY)):"Prepara la orden y ajusta los niveles");

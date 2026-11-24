@@ -121,7 +121,13 @@ void HandleChartMouseMove(const int x,const int y,const string state)
          price=NormalizeTradePrice(price+chartDragMouseOffset);
          if(price>0 && MathAbs(price-chartDragPrice)>_Point/10) PreviewDraggedPrice(price);
       }
-      if(!pressed) FinishChartDrag();
+      if(!pressed)
+      {
+         FinishChartDrag();
+         // Keep native trade drag blocked only while the cursor is over our UI.
+         // A second drag at the same BE/SL price must not go to the broker level.
+         SetTradeLevelDragCaptured(PointOnPanel(x,y) || ChartLevelNearMouse(x,y)!="");
+      }
       return;
    }
    if(!pressed)
