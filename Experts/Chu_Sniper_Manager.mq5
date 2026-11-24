@@ -1,40 +1,57 @@
 #property strict
-#property version "0.130"
+#property version "0.140"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
+#include "ChuSniper/ChartStyle.mqh"
 #include "ChuSniper/ChartObjects.mqh"
 #include "ChuSniper/Positions.mqh"
 #include "ChuSniper/Orders.mqh"
 #include "ChuSniper/TradeManagement.mqh"
 #include "ChuSniper/Panel.mqh"
 #include "ChuSniper/ChartInteraction.mqh"
+#include "ChuSniper/PanelPersistence.mqh"
 
 int OnInit()
 {
    trade.SetExpertMagicNumber(Magic);
    trade.SetTypeFillingBySymbol(_Symbol);
-   ChartSetInteger(0,CHART_COLOR_BACKGROUND,C'43,44,48');
-   ChartSetInteger(0,CHART_COLOR_CANDLE_BULL,C'41,167,165');
-   ChartSetInteger(0,CHART_COLOR_CHART_UP,C'41,167,165');
-   ChartSetInteger(0,CHART_COLOR_CANDLE_BEAR,C'228,92,88');
-   ChartSetInteger(0,CHART_COLOR_CHART_DOWN,C'228,92,88');
+   ApplyPandoraChartStyle(ChartID());
    tradeExecutionEnabled=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO || MQLInfoInteger(MQL_TESTER))
          && AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
    csmPanelStatus=tradeExecutionEnabled?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
+   ObjectsDeleteAll(0,panelObjectPrefix);
+   // OnInit may run again without a new EA instance; discard stale object caches.
+   ArrayResize(panelObjects,0);ArrayResize(priceLevels,0);InvalidatePositionFeeCache();
+   chartLeftPressed=false;suppressPanelClick=false;editingStopPoints=false;
+   closeConfirmationDeadline=0;panelGesture=0;chartLineDragging=false;chartDragKey="";
+   panelDirty=true;lastPanelRefresh=0;lastQuickQuoteRefresh=0;
+   LoadPanelState();
    InitializeChartInteraction();
    EventSetMillisecondTimer(250);
    RenderPanel();
    return INIT_SUCCEEDED;
 }
-void OnDeinit(const int reason){EventKillTimer();RestoreChartInteraction();ObjectsDeleteAll(0,panelObjectPrefix);}
+void OnDeinit(const int reason)
+{
+   EventKillTimer();
+   if(chartLineDragging) CancelChartDrag();
+   FinishPanelGesture();
+   CapturePanelInputs();
+   SavePanelState();
+   RestoreChartInteraction();
+   ObjectsDeleteAll(0,panelObjectPrefix);
+}
+void OnTick(){RefreshQuickQuotes();}
 void OnTimer()
 {
    ulong now=GetTickCount64();
    if(chartLineDragging && now-chartDragLastEvent>20000) CancelChartDrag();
+   if(panelGesture!=0 && now-panelGestureLastEvent>20000) FinishPanelGesture();
    // Keep server-side stop management active even during a chart gesture.
    UpdateTrailingStops();
-   if(chartLineDragging) return; // No periodic repaint during a live drag.
+   if(chartLineDragging || panelGesture!=0) return; // No periodic repaint during a live gesture.
    if(panelDirty || now-lastPanelRefresh>=750) RenderPanel();
+   if(panelStateReady && now-lastStateSave>=5000) SavePanelState();
 }
 void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
 {
@@ -43,6 +60,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       HandleChartMouseMove((int)lp,(int)dp,sp);
       return;
    }
+   if(id==CHARTEVENT_CHART_CHANGE){panelDirty=true;return;}
    if(StringFind(sp,panelObjectPrefix)!=0) return;
    string k=StringSubstr(sp,StringLen(panelObjectPrefix));
    if(id==CHARTEVENT_OBJECT_DRAG) return; // Only mouse release commits EA drags.
@@ -66,10 +84,26 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
          rewardRiskRatio=PanelInputNumber(k);riskRewardMode=true;
          if(orderPrepared) plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
       }
+      if(k=="riskval" || k=="amount" || k=="points" || k=="ratio")
+         SetPanelInputText(k,DoubleToString(PanelInputNumber(k),16));
       RenderPanel();return;
    }
-   if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging) return;
-   if(PriceLevelSlot(k)>=0) return;
+   if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging || panelGesture!=0 || suppressPanelClick) return;
+   if(PriceLevelSlot(k)>=0 || !PanelControlVisible(k)) return;
+   if(k=="title" || k=="resize" || k=="bg" || k=="quickInfo" || k=="beinfo") return;
+   if(k=="minimize")
+   {
+      ObjectSetInteger(0,sp,OBJPROP_STATE,false);
+      panelMinimized=!panelMinimized;closeConfirmationDeadline=0;RenderPanel();return;
+   }
+   if(k=="quickBuy" || k=="quickSell")
+   {
+      if(!PanelHit(k,(int)lp,(int)dp)) return;
+      closeConfirmationDeadline=0;
+      ObjectSetInteger(0,sp,OBJPROP_STATE,false);
+      SubmitQuickMarket(k=="quickBuy"?1:-1);
+      RenderPanel();return;
+   }
    if(k=="points"){editingStopPoints=true;return;}
    ObjectSetInteger(0,sp,OBJPROP_STATE,false);
    if(k!="close") closeConfirmationDeadline=0;
@@ -94,7 +128,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    }
    if(k=="percent" && riskMode!=0){riskMode=0;SetPanelInputText("riskval","1");}
    if(k=="money" && riskMode!=1){riskMode=1;SetPanelInputText("riskval","200");}
-   if(k=="lot" && riskMode!=2){riskMode=2;SetPanelInputText("riskval",DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),4));}
+   if(k=="lot" && riskMode!=2){riskMode=2;SetPanelInputText("riskval",DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),16));}
    if(k=="tpMode")
    {
       riskRewardMode=!riskRewardMode;

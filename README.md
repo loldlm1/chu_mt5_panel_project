@@ -6,9 +6,9 @@ Expert Advisor for MetaTrader 5. The source-of-truth entry point is `Experts/Chu
 
 The initial `main` commit imports original v0.12 logic from the supplied UTF-16 LE source, as GitHub-readable UTF-8 with the original characters/behavior preserved.
 
-## Current version — v0.13.0
+## Current version — v0.14.0
 
-See [CHANGELOG.md](CHANGELOG.md) for the history of accepted updates and versioning conventions. The EA metadata is `#property version "0.130"`; the project version is v0.13.0. Track new work in [GitHub Issues](https://github.com/loldlm1/chu_mt5_panel_project/issues).
+See [CHANGELOG.md](CHANGELOG.md) for the history of accepted updates and versioning conventions. The EA metadata is `#property version "0.140"`; the project version is v0.14.0. Track new work in [GitHub Issues](https://github.com/loldlm1/chu_mt5_panel_project/issues).
 
 ## Build (MetaEditor)
 
@@ -25,3 +25,7 @@ Review the resulting compiler log. Only a real compiler invocation with 0 errors
 ## Workflow
 
 The project reads `AGENTS.md`, `docs/agents/` and `GLOSSARY.md`. Matt Pocock's workflow in Codex CLI is the native reference; GitHub-only sessions may reproduce its issue/PR convention but cannot claim to run Codex CLI skills or delegates.
+
+## Panel preferences
+
+`PanelTheme` selects the original or Pandora panel palette. Chart style always follows Pandora. Drag the header or resize corner; minimize to quick market buttons. Per-chart state is stored in the terminal's MQL5 Files sandbox and keyed by a hidden chart-profile identity, account, symbol and magic. Keep the chart/profile to restore state; deleting it or the state file starts fresh. Tester runs do not restore saved state. Quick BUY/SELL uses configured SL points, R:B and current risk; it does not send the prepared manual order. Demo hedging only.

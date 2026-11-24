@@ -107,11 +107,39 @@ void FinishChartDrag()
       AdjustBrokerPendingOrder(key,price,initial,chartDragStartSL,chartDragStartTP);
    RenderPanel();
 }
+void FinishPanelGesture()
+{
+   if(panelGesture==0) return;
+   panelGesture=0;
+   ObjectSetInteger(0,PanelObjectName("title"),OBJPROP_STATE,false);
+   ObjectSetInteger(0,PanelObjectName("resize"),OBJPROP_STATE,false);
+   SetChartScrollCaptured(false);SetTradeLevelDragCaptured(false);
+   suppressPanelClick=true;panelDirty=true;
+}
 void HandleChartMouseMove(const int x,const int y,const string state)
 {
    bool pressed=(((int)StringToInteger(state))&1)!=0;
    bool edge=pressed && !chartLeftPressed;
    chartLeftPressed=pressed;chartHoverAt=GetTickCount64();
+   if(edge) suppressPanelClick=false;
+   if(panelGesture!=0)
+   {
+      panelGestureLastEvent=chartHoverAt;
+      if(panelGesture==1)
+      {
+         panelX=panelGestureStartX+x-panelGestureX;
+         panelY=panelGestureStartY+y-panelGestureY;
+      }
+      else
+      {
+         // Uniform scale from diagonal pointer displacement.
+         double dx=(double)(x-panelGestureX)/460,dy=(double)(y-panelGestureY)/PanelBaseHeight();
+         panelScale=panelGestureStartScale+(dx+dy)/2;
+      }
+      RenderPanel();
+      if(!pressed) FinishPanelGesture();
+      return;
+   }
    if(chartLineDragging)
    {
       chartDragLastEvent=chartHoverAt;
@@ -136,6 +164,17 @@ void HandleChartMouseMove(const int x,const int y,const string state)
       return;
    }
    if(!edge) return;
+   if(PanelHit("title",x,y) || PanelHit("resize",x,y))
+   {
+      panelGesture=PanelHit("resize",x,y)?2:1;
+      panelGestureX=x;panelGestureY=y;
+      panelGestureStartX=panelX;panelGestureStartY=panelY;
+      panelGestureStartScale=panelDrawScale;
+      panelGestureLastEvent=chartHoverAt;
+      suppressPanelClick=true;
+      SetTradeLevelDragCaptured(true);SetChartScrollCaptured(true);ChartRedraw();
+      return;
+   }
    string candidate=ChartLevelNearMouse(x,y);
    if(candidate=="") return;
    double mouse=0;
@@ -153,6 +192,6 @@ void HandleChartMouseMove(const int x,const int y,const string state)
    chartDragKey=candidate;chartDragStartPrice=priceLevels[slot].price;
    chartDragPrice=chartDragStartPrice;chartDragMouseOffset=chartDragStartPrice-mouse;
    chartDragOriginalFixedStop=fixedStopMode;chartDragOriginalRiskReward=riskRewardMode;
-   chartDragLastEvent=chartHoverAt;chartLineDragging=true;
+   chartDragLastEvent=chartHoverAt;chartLineDragging=true;suppressPanelClick=true;
    SetTradeLevelDragCaptured(true);SetChartScrollCaptured(true);ChartRedraw();
 }
