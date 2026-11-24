@@ -74,7 +74,13 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    {
       panelMinimized=!panelMinimized;closeConfirmationDeadline=0;RenderPanel();return;
    }
-   if(k=="quickBuy" || k=="quickSell") return; // enabled with the next implementation slice
+   if(k=="quickBuy" || k=="quickSell")
+   {
+      if(!PanelHit(k,(int)lp,(int)dp)) return;
+      ObjectSetInteger(0,sp,OBJPROP_STATE,false);
+      SubmitQuickMarket(k=="quickBuy"?1:-1);
+      RenderPanel();return;
+   }
    if(k=="points"){editingStopPoints=true;return;}
    ObjectSetInteger(0,sp,OBJPROP_STATE,false);
    if(k!="close") closeConfirmationDeadline=0;
