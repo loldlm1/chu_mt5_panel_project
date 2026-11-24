@@ -33,7 +33,7 @@ void RenderPanel()
    ClampPanelGeometry();
    int x=8,y=7;
    DrawPanelObject("bg",OBJ_RECTANGLE_LABEL,0,0,460,PanelBaseHeight(),"",PanelBackground(),PanelBorder());
-   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.14.0 | DEMO");
+   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.15.0 | "+AccountModeCaption()+(SupportedTradingAccount()?"":" (solo vista)"));
    DrawPanelButton("minimize",x+412,y,32,panelMinimized?"+":"-");
    y+=29;
    MqlTick quickQuote;

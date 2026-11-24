@@ -57,12 +57,12 @@ void CapturePanelInputs()
 }
 void ResetPanelOperationalState()
 {
-   tradeSide=1;riskMode=1;trailingMode=0;groupMode=true;pendingOrderMode=false;
+   tradeSide=1;riskMode=0;trailingMode=0;groupMode=true;pendingOrderMode=false;
    orderPrepared=false;fixedStopMode=false;riskRewardMode=true;percentTargetMode=false;breakEvenShown=false;
    csmPlannedEntry=0;plannedStopLoss=0;plannedTakeProfit=0;breakEvenPrice=0;
    stopDistancePoints=250;rewardRiskRatio=2;
    panelX=12;panelY=20;panelScale=1.0;panelMinimized=false;
-   savedRiskText="200";savedPointsText="250";savedRatioText="2";savedAmountText="100";
+   savedRiskText="1";savedPointsText="250";savedRatioText="2";savedAmountText="100";
    ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);
    panelStateReady=false;panelStateFile="";lastSavedPanelRecord="";lastStateSave=0;
 }

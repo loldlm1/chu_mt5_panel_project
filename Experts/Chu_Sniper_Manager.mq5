@@ -1,5 +1,5 @@
 #property strict
-#property version "0.140"
+#property version "0.150"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
 #include "ChuSniper/ChartStyle.mqh"
@@ -17,9 +17,8 @@ int OnInit()
    trade.SetExpertMagicNumber(Magic);
    trade.SetTypeFillingBySymbol(_Symbol);
    ApplyPandoraChartStyle(ChartID());
-   tradeExecutionEnabled=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO || MQLInfoInteger(MQL_TESTER))
-         && AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
-   csmPanelStatus=tradeExecutionEnabled?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
+   tradeExecutionEnabled=SupportedTradingAccount();
+   csmPanelStatus=tradeExecutionEnabled?AccountModeCaption()+": selecciona Comprar o Vender":"Vista previa: requiere Demo/Real hedging";
    ObjectsDeleteAll(0,panelObjectPrefix);
    // OnInit may run again without a new EA instance; discard stale object caches.
    ArrayResize(panelObjects,0);ArrayResize(priceLevels,0);InvalidatePositionFeeCache();
@@ -158,7 +157,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    }
    if(k=="send" || k=="apply" || k=="realize" || k=="close")
    {
-      if(!tradeExecutionEnabled) csmPanelStatus="Ejecucion disponible solo en demo hedging";
+      if(!TradePermissionsAllowed()) csmPanelStatus="Trading no permitido: requiere hedging y permisos";
       else if(k=="send") SubmitOrder();
       else if(k=="apply") ApplyBreakEvenStops();
       else if(k=="realize") CloseManagedPositions(false);

@@ -2,6 +2,15 @@
 
 All accepted updates are recorded here. Project versions use MAJOR.MINOR.PATCH, with one version per merged update. The MQL5 metadata encodes the minor and patch as three digits (e.g. v0.13.0 = 0.130). Intermediate QA commits are part of the same version.
 
+## [0.15.0] — pending acceptance
+
+Story #22; tickets #23–#28.
+- Shared broker-aware order preparation, safe tick-grid alignment and adaptive SL/TP.
+- Protected manual and quick entries with effective-stop sizing and OrderCheck; no unprotected fallback.
+- Freeze-aware pending edits, per-ticket adaptive BE and monotonic trailing.
+- Demo/Real hedging support, account mode in the header, fresh risk default 1% per entry, no artificial group cap.
+- Pending MetaEditor and Demo/Tester QA.
+
 ## [0.14.0] — 2026-11-24
 
 Story #14, PR #21; tickets #15–#20.

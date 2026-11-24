@@ -132,9 +132,23 @@ double RemainingDirectionalVolume(const int dir,const BrokerRules &b)
    }
    return MathMax(0,MathMin(b.maxVolume,b.limitVolume-used));
 }
+bool SupportedTradingAccount()
+{
+   long mode=AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   return AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING &&
+          (mode==ACCOUNT_TRADE_MODE_DEMO || mode==ACCOUNT_TRADE_MODE_REAL);
+}
+string AccountModeCaption()
+{
+   if(MQLInfoInteger(MQL_TESTER)) return "TESTER";
+   long mode=AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   if(mode==ACCOUNT_TRADE_MODE_REAL) return "LIVE";
+   if(mode==ACCOUNT_TRADE_MODE_DEMO) return "DEMO";
+   return "CONTEST";
+}
 bool TradePermissionsAllowed()
 {
-   return tradeExecutionEnabled && MQLInfoInteger(MQL_TRADE_ALLOWED) &&
+   return SupportedTradingAccount() && MQLInfoInteger(MQL_TRADE_ALLOWED) &&
           AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) && AccountInfoInteger(ACCOUNT_TRADE_EXPERT) &&
           (MQLInfoInteger(MQL_TESTER) || TerminalInfoInteger(TERMINAL_TRADE_ALLOWED));
 }
