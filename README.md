@@ -6,9 +6,9 @@ Expert Advisor for MetaTrader 5. The source-of-truth entry point is `Experts/Chu
 
 The initial `main` commit imports original v0.12 logic from the supplied UTF-16 LE source, as GitHub-readable UTF-8 with the original characters/behavior preserved.
 
-## Scope of the first change
+## Current version — v0.13.0
 
-Reorganize the current single-file EA into small MQL5 headers without changing trading behavior or the public inputs. See the parent story and tickets under [GitHub Issues](https://github.com/loldlm1/chu_mt5_panel_project/issues).
+See [CHANGELOG.md](CHANGELOG.md) for the history of accepted updates and versioning conventions. The EA metadata is `#property version "0.130"`; the project version is v0.13.0. Track new work in [GitHub Issues](https://github.com/loldlm1/chu_mt5_panel_project/issues).
 
 ## Build (MetaEditor)
 

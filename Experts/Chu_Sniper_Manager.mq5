@@ -1,5 +1,5 @@
 #property strict
-#property version "0.12"
+#property version "0.130"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
 #include "ChuSniper/ChartObjects.mqh"
