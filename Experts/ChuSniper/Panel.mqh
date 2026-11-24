@@ -1,4 +1,5 @@
-int PanelBaseHeight(){return panelMinimized?(breakEvenShown?155:126):414;}
+// The resize grip shares the status row; reserve another row only for BE info.
+int PanelBaseHeight(){return (panelMinimized?126:388)+CSM_QUICK_EXTRA+(breakEvenShown?29:0);}
 void ClampPanelGeometry()
 {
    int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS);
@@ -13,7 +14,7 @@ void ClampPanelGeometry()
 string QuickQuoteCaption(const bool buy,const MqlTick &quote,const bool available)
 {
    string side=buy?"BUY":"SELL";
-   return side+"  "+(available?DoubleToString(buy?quote.ask:quote.bid,_Digits):"--");
+   return side+"  "+(available?PanelNumberText(buy?quote.ask:quote.bid):"--");
 }
 // Quote-only update: no position/history queries or full layout on every tick.
 void RefreshQuickQuotes()
@@ -37,16 +38,16 @@ void RenderPanel()
    y+=29;
    MqlTick quickQuote;
    bool hasQuote=SymbolInfoTick(_Symbol,quickQuote) && quickQuote.bid>0 && quickQuote.ask>=quickQuote.bid;
-   DrawPanelButton("quickSell",x,y,219,QuickQuoteCaption(false,quickQuote,hasQuote),sellColor);
-   DrawPanelButton("quickBuy",x+225,y,219,QuickQuoteCaption(true,quickQuote,hasQuote),buyColor);
-   y+=29;
+   DrawPanelObject("quickSell",OBJ_BUTTON,x,y,219,CSM_QUICK_HEIGHT,QuickQuoteCaption(false,quickQuote,hasQuote),sellColor,textColor);
+   DrawPanelObject("quickBuy",OBJ_BUTTON,x+225,y,219,CSM_QUICK_HEIGHT,QuickQuoteCaption(true,quickQuote,hasQuote),buyColor,textColor);
+   y+=CSM_QUICK_HEIGHT+4;
    // Draw inputs before the quick summary, even if hidden in compact mode.
-   DrawPanelInput("riskval",x+319,123,125,savedRiskText);
-   DrawPanelInput("points",x+110,152,77,savedPointsText);
-   DrawPanelInput("ratio",x+347,152,97,savedRatioText);
-   DrawPanelInput("amount",x+334,297,110,savedAmountText);
+   DrawPanelInput("riskval",x+319,123+CSM_QUICK_EXTRA,125,savedRiskText);
+   DrawPanelInput("points",x+110,152+CSM_QUICK_EXTRA,77,savedPointsText);
+   DrawPanelInput("ratio",x+347,152+CSM_QUICK_EXTRA,97,savedRatioText);
+   DrawPanelInput("amount",x+334,297+CSM_QUICK_EXTRA,110,savedAmountText);
    string riskCaption=riskMode==0?"% cuenta":riskMode==1?AccountInfoString(ACCOUNT_CURRENCY):"lotes";
-   DrawPanelButton("quickInfo",x,y,444,StringFormat("Rapido: %s %s | SL %.1f pts | R:B %.2f",PanelInputText("riskval"),riskCaption,stopDistancePoints,rewardRiskRatio));
+   DrawPanelButton("quickInfo",x,y,444,StringFormat("Rapido: %s %s | SL %s pts | R:B %s",PanelNumberText(PanelInputNumber("riskval")),riskCaption,PanelNumberText(stopDistancePoints),PanelNumberText(rewardRiskRatio)));
    y+=29;
    DrawPanelButton("buy",x,y,105,"Comprar",tradeSide>0?buyColor:CSM_PANEL_NAVY);
    DrawPanelButton("sell",x+110,y,105,"Vender",tradeSide<0?sellColor:CSM_PANEL_NAVY);
@@ -83,11 +84,12 @@ void RenderPanel()
       // Never overwrite a user editing the distance input.
       if(!editingStopPoints)
       {
-         string points=DoubleToString(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point,1);
-         if(PanelInputText("points")!=points) SetPanelInputText("points",points);
+         string points=DoubleToString(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point,16);
+         if(PanelInputRaw("points")!=points || PanelInputText("points")!=PanelNumberText(ParsePanelNumber(points)))
+            SetPanelInputText("points",points);
       }
    }
-   DrawPanelButton("preview",x,y,444,valid?StringFormat("Lote %.4f  |  Riesgo estimado %.2f %s",lot,loss,AccountInfoString(ACCOUNT_CURRENCY)):"Prepara la orden y ajusta los niveles");
+   DrawPanelButton("preview",x,y,444,valid?StringFormat("Lote %s  |  Riesgo estimado %.2f %s",PanelNumberText(lot),loss,AccountInfoString(ACCOUNT_CURRENCY)):"Prepara la orden y ajusta los niveles");
    y+=29;
    DrawPanelButton("send",x,y,444,orderPrepared?"Confirmar "+OrderTypeCaption(type):"Confirmar orden",valid?buyColor:CSM_PANEL_NAVY);
    y+=29;
@@ -109,8 +111,8 @@ void RenderPanel()
    DrawPanelButton("realize",x,y,218,"Realizar ganancia",infoColor);
    DrawPanelButton("close",x+222,y,222,closeConfirmationDeadline>GetTickCount64()?"Confirmar cerrar todo":"Cerrar todo",sellColor);
    y+=29;
-   DrawPanelButton("status",x,y,444,csmPanelStatus);
-   DrawPanelButton("resize",428,384,24,"//");
+   DrawPanelButton("status",x,y,panelMinimized?444:415,csmPanelStatus);
+   DrawPanelButton("resize",428,y,24,"//");
    if(breakEvenShown && count>0)
    {
       DrawPriceLevel("BE",breakEvenPrice,highlightColor,true);
@@ -133,8 +135,8 @@ void RenderPanel()
          DrawPanelObjectRaw("beinfo",OBJ_BUTTON,bx,by,bw,25,preview,PanelAccent(CSM_PANEL_NAVY),ink);
       else
          DrawPanelObjectRaw("beinfo",OBJ_BUTTON,panelX+(int)MathRound(8*panelDrawScale),
-            panelY+(int)MathRound((panelMinimized?123:384)*panelDrawScale),
-            (int)MathMax(1,MathRound((panelMinimized?444:415)*panelDrawScale)),
+            panelY+(int)MathRound((panelMinimized?123+CSM_QUICK_EXTRA:y+29)*panelDrawScale),
+            (int)MathMax(1,MathRound(444*panelDrawScale)),
             (int)MathMax(1,MathRound(25*panelDrawScale)),preview,PanelAccent(CSM_PANEL_NAVY),ink,
             (int)MathMax(6,MathRound(10*panelDrawScale)));
    }

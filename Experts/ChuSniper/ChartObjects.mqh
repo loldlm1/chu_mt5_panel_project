@@ -98,17 +98,80 @@ bool CompactPanelControl(const string key)
 void DrawPanelObject(string key,ENUM_OBJECT type,int x,int y,int w,int h,string label,color bg,color fg)
 {
    bool visible=!panelMinimized || CompactPanelControl(key);
-   if(key=="status" && panelMinimized) y=94;
-   int font=(int)MathMax(6,MathMin(22,MathRound(10*panelDrawScale)));
+   if(key=="status" && panelMinimized) y=94+CSM_QUICK_EXTRA;
+   bool quick=(key=="quickBuy" || key=="quickSell");
+   int font=(int)MathMax(6,MathMin(quick?34:22,MathRound((quick?16:10)*panelDrawScale)));
    DrawPanelObjectRaw(key,type,panelX+(int)MathRound(x*panelDrawScale),panelY+(int)MathRound(y*panelDrawScale),
       (int)MathMax(1,MathRound(w*panelDrawScale)),(int)MathMax(1,MathRound(h*panelDrawScale)),
       label,key=="bg"?PanelBackground():PanelAccent(bg),PanelInk(bg,fg),font,visible);
 }
 void DrawPanelButton(string k,int x,int y,int w,string s,color c=CSM_PANEL_NAVY){DrawPanelObject(k,OBJ_BUTTON,x,y,w,25,s,c,c==highlightColor?clrBlack:textColor);}
-void DrawPanelInput(string k,int x,int y,int w,string s){DrawPanelObject(k,OBJ_EDIT,x,y,w,25,s,CSM_PANEL_NAVY,textColor);}
+// Formatting is presentation-only: the original precise value remains available
+// when a formatted field has not been edited.
+double ParsePanelNumber(string s)
+{
+   StringReplace(s,",",".");
+   return StringToDouble(s);
+}
+string PanelNumberText(const double value)
+{
+   if(!MathIsValidNumber(value)) return "--";
+   if(value>0 && value<0.005) return "<0.01";
+   string text=DoubleToString(value,2);
+   while(StringLen(text)>0 && StringSubstr(text,StringLen(text)-1)=="0")
+      text=StringSubstr(text,0,StringLen(text)-1);
+   if(StringLen(text)>0 && StringSubstr(text,StringLen(text)-1)==".")
+      text=StringSubstr(text,0,StringLen(text)-1);
+   return text=="-0"?"0":text;
+}
+string PanelInputRaw(const string key)
+{
+   if(key=="riskval") return savedRiskText;
+   if(key=="points") return savedPointsText;
+   if(key=="ratio") return savedRatioText;
+   if(key=="amount") return savedAmountText;
+   return "";
+}
+void RememberPanelInput(const string key,const string raw)
+{
+   if(key=="riskval") savedRiskText=raw;
+   if(key=="points") savedPointsText=raw;
+   if(key=="ratio") savedRatioText=raw;
+   if(key=="amount") savedAmountText=raw;
+}
+void SetPanelPrecisionHint(const string key,const double value)
+{
+   string caption=PanelNumberText(value);
+   string hint="\n";
+   if(caption=="<0.01" || MathAbs(value-ParsePanelNumber(caption))>1e-10)
+      hint="Valor exacto: "+DoubleToString(value,16);
+   ObjectSetString(0,PanelObjectName(key),OBJPROP_TOOLTIP,hint);
+}
+void DrawPanelInput(string k,int x,int y,int w,string s)
+{
+   bool fresh=true;
+   for(int i=0;i<ArraySize(panelObjects);i++) if(panelObjects[i].key==k){fresh=false;break;}
+   double value=ParsePanelNumber(s);
+   DrawPanelObject(k,OBJ_EDIT,x,y,w,25,PanelNumberText(value),CSM_PANEL_NAVY,textColor);
+   if(fresh) SetPanelPrecisionHint(k,value);
+}
 string PanelInputText(string k){return ObjectGetString(0,PanelObjectName(k),OBJPROP_TEXT);}
-double PanelInputNumber(string k){string s=PanelInputText(k);StringReplace(s,",",".");return StringToDouble(s);}
-void SetPanelInputText(string k,string s){ObjectSetString(0,PanelObjectName(k),OBJPROP_TEXT,s);}
+double PanelInputNumber(string k)
+{
+   string text=PanelInputText(k),raw=PanelInputRaw(k);
+   double precise=ParsePanelNumber(raw);
+   if(raw!="" && text==PanelNumberText(precise)) return precise;
+   return ParsePanelNumber(text);
+}
+void SetPanelInputText(string k,string s)
+{
+   double value=ParsePanelNumber(s);
+   string caption=PanelNumberText(value);
+   bool preciseChanged=(PanelInputRaw(k)!=s);
+   RememberPanelInput(k,s);
+   if(PanelInputText(k)!=caption) ObjectSetString(0,PanelObjectName(k),OBJPROP_TEXT,caption);
+   if(preciseChanged) SetPanelPrecisionHint(k,value);
+}
 
 struct PriceLevelState
 {

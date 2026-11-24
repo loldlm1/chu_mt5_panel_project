@@ -84,6 +84,8 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
          rewardRiskRatio=PanelInputNumber(k);riskRewardMode=true;
          if(orderPrepared) plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
       }
+      if(k=="riskval" || k=="amount" || k=="points" || k=="ratio")
+         SetPanelInputText(k,DoubleToString(PanelInputNumber(k),16));
       RenderPanel();return;
    }
    if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging || panelGesture!=0 || suppressPanelClick) return;
@@ -126,7 +128,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    }
    if(k=="percent" && riskMode!=0){riskMode=0;SetPanelInputText("riskval","1");}
    if(k=="money" && riskMode!=1){riskMode=1;SetPanelInputText("riskval","200");}
-   if(k=="lot" && riskMode!=2){riskMode=2;SetPanelInputText("riskval",DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),4));}
+   if(k=="lot" && riskMode!=2){riskMode=2;SetPanelInputText("riskval",DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),16));}
    if(k=="tpMode")
    {
       riskRewardMode=!riskRewardMode;

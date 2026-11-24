@@ -87,7 +87,7 @@ void SubmitQuickMarket(const int direction)
    {csmPanelStatus=StringFormat("%s: rechazo previo %u %s",side,check.retcode,check.comment);return;}
    bool sent=OrderSend(request,result);
    if(sent && (result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_DONE_PARTIAL))
-      csmPanelStatus=StringFormat("%s ejecutado %.4f | #%I64u",side,result.volume,result.deal);
+      csmPanelStatus=StringFormat("%s ejecutado %s | #%I64u",side,PanelNumberText(result.volume),result.deal);
    else if(sent && result.retcode==TRADE_RETCODE_PLACED)
       csmPanelStatus=side+": solicitud aceptada; revisa broker";
    else csmPanelStatus=StringFormat("%s: %u %s; revisa broker",side,result.retcode,result.comment);

@@ -50,10 +50,10 @@ string CurrentPanelScope()
 void CapturePanelInputs()
 {
    // Same-scope reinit retains validated configuration even when disk is unavailable.
-   savedRiskText=PanelInputText("riskval");
-   savedAmountText=PanelInputText("amount");
-   savedPointsText=DoubleToString(stopDistancePoints,1);
-   savedRatioText=DoubleToString(rewardRiskRatio,4);
+   savedRiskText=DoubleToString(PanelInputNumber("riskval"),16);
+   savedAmountText=DoubleToString(PanelInputNumber("amount"),16);
+   savedPointsText=DoubleToString(stopDistancePoints,16);
+   savedRatioText=DoubleToString(rewardRiskRatio,16);
 }
 void ResetPanelOperationalState()
 {
@@ -105,7 +105,7 @@ void LoadPanelState()
    groupMode=a[8]=="1";pendingOrderMode=a[9]=="1";orderPrepared=a[10]=="1" && entry>0 && sl>0 && tp>0;
    fixedStopMode=a[11]=="1";riskRewardMode=a[12]=="1";percentTargetMode=a[13]=="1";breakEvenShown=a[14]=="1" && be>0;
    stopDistancePoints=points;rewardRiskRatio=ratio;csmPlannedEntry=entry;plannedStopLoss=sl;plannedTakeProfit=tp;breakEvenPrice=be;
-   savedRiskText=a[21];savedPointsText=DoubleToString(points,1);savedRatioText=DoubleToString(ratio,4);savedAmountText=a[22];
+   savedRiskText=a[21];savedPointsText=DoubleToString(points,16);savedRatioText=DoubleToString(ratio,16);savedAmountText=a[22];
    for(int i=0;i<count;i++)
    {
       ulong ticket=(ulong)StringToInteger(a[24+2*i]);
