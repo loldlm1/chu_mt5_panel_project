@@ -20,6 +20,11 @@ int OnInit()
          && AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
    csmPanelStatus=tradeExecutionEnabled?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
    ObjectsDeleteAll(0,panelObjectPrefix);
+   // OnInit may run again without a new EA instance; discard stale object caches.
+   ArrayResize(panelObjects,0);ArrayResize(priceLevels,0);InvalidatePositionFeeCache();
+   chartLeftPressed=false;suppressPanelClick=false;editingStopPoints=false;
+   closeConfirmationDeadline=0;panelGesture=0;chartLineDragging=false;chartDragKey="";
+   panelDirty=true;lastPanelRefresh=0;
    LoadPanelState();
    InitializeChartInteraction();
    EventSetMillisecondTimer(250);
@@ -31,6 +36,7 @@ void OnDeinit(const int reason)
    EventKillTimer();
    if(chartLineDragging) CancelChartDrag();
    FinishPanelGesture();
+   CapturePanelInputs();
    SavePanelState();
    RestoreChartInteraction();
    ObjectsDeleteAll(0,panelObjectPrefix);
@@ -89,6 +95,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(k=="quickBuy" || k=="quickSell")
    {
       if(!PanelHit(k,(int)lp,(int)dp)) return;
+      closeConfirmationDeadline=0;
       ObjectSetInteger(0,sp,OBJPROP_STATE,false);
       SubmitQuickMarket(k=="quickBuy"?1:-1);
       RenderPanel();return;

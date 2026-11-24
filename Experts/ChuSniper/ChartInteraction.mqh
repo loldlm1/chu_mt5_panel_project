@@ -128,7 +128,12 @@ void HandleChartMouseMove(const int x,const int y,const string state)
          panelX=panelGestureStartX+x-panelGestureX;
          panelY=panelGestureStartY+y-panelGestureY;
       }
-      else panelScale=panelGestureStartScale+(double)(x-panelGestureX)/460;
+      else
+      {
+         // Uniform scale from diagonal pointer displacement.
+         double dx=(double)(x-panelGestureX)/460,dy=(double)(y-panelGestureY)/414;
+         panelScale=panelGestureStartScale+(dx+dy)/2;
+      }
       RenderPanel();
       if(!pressed) FinishPanelGesture();
       return;

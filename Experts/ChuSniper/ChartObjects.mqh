@@ -87,7 +87,7 @@ void DrawPanelObject(string key,ENUM_OBJECT type,int x,int y,int w,int h,string 
 {
    bool visible=!panelMinimized || CompactPanelControl(key);
    if(key=="status" && panelMinimized) y=94;
-   int font=(int)MathMax(7,MathMin(22,MathRound(10*panelDrawScale)));
+   int font=(int)MathMax(6,MathMin(22,MathRound(10*panelDrawScale)));
    DrawPanelObjectRaw(key,type,panelX+(int)MathRound(x*panelDrawScale),panelY+(int)MathRound(y*panelDrawScale),
       (int)MathMax(1,MathRound(w*panelDrawScale)),(int)MathMax(1,MathRound(h*panelDrawScale)),
       label,key=="bg"?PanelBackground():PanelAccent(bg),PanelInk(bg,fg),font,visible);

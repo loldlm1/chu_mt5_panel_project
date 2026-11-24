@@ -21,6 +21,15 @@ string PanelPersistenceIdentity()
       if((c<'0' || c>'9') && c!='_' && c!='-') return "";
    }
    if(StringLen(identity)>64) return "";
+   // A copied template must not share the state file with another open chart.
+   for(long chart=ChartFirst();chart>=0;chart=ChartNext(chart))
+   {
+      if(chart==ChartID() || ObjectFind(chart,marker)<0) continue;
+      if(ObjectGetString(chart,marker,OBJPROP_TEXT)!=identity) continue;
+      identity=StringFormat("%I64d_%I64u",ChartID(),GetMicrosecondCount());
+      ObjectSetString(0,marker,OBJPROP_TEXT,identity);
+      break;
+   }
    string scope=AccountInfoString(ACCOUNT_SERVER)+"|"+_Symbol;
    uint hash=2166136261;
    for(int i=0;i<StringLen(scope);i++) hash=(hash^(uint)StringGetCharacter(scope,i))*16777619;
@@ -33,8 +42,38 @@ bool OwnedTrailingTicket(const ulong ticket)
    return ticket>0 && PositionSelectByTicket(ticket) && PositionGetString(POSITION_SYMBOL)==_Symbol &&
           (IncludeOtherPositions || PositionGetInteger(POSITION_MAGIC)==(long)Magic);
 }
+string CurrentPanelScope()
+{
+   return StringFormat("%I64d|%I64u|%s|%s",AccountInfoInteger(ACCOUNT_LOGIN),Magic,
+                       AccountInfoString(ACCOUNT_SERVER),_Symbol);
+}
+void CapturePanelInputs()
+{
+   // Same-scope reinit retains validated configuration even when disk is unavailable.
+   savedRiskText=PanelInputText("riskval");
+   savedAmountText=PanelInputText("amount");
+   savedPointsText=DoubleToString(stopDistancePoints,1);
+   savedRatioText=DoubleToString(rewardRiskRatio,4);
+}
+void ResetPanelOperationalState()
+{
+   tradeSide=1;riskMode=1;trailingMode=0;groupMode=true;pendingOrderMode=false;
+   orderPrepared=false;fixedStopMode=false;riskRewardMode=true;percentTargetMode=false;breakEvenShown=false;
+   csmPlannedEntry=0;plannedStopLoss=0;plannedTakeProfit=0;breakEvenPrice=0;
+   stopDistancePoints=250;rewardRiskRatio=2;
+   panelX=12;panelY=20;panelScale=1.0;panelMinimized=false;
+   savedRiskText="200";savedPointsText="250";savedRatioText="2";savedAmountText="100";
+   ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);
+   panelStateReady=false;panelStateFile="";lastSavedPanelRecord="";lastStateSave=0;
+}
 void LoadPanelState()
 {
+   string scope=CurrentPanelScope();
+   // MT5 preserves globals across chart/parameter changes. Reuse only same-scope
+   // committed state; never carry a different symbol/account/magic's draft.
+   if(activePanelScope==scope) return;
+   ResetPanelOperationalState();
+   activePanelScope=scope;
    // Tester runs must not inherit a live chart's state.
    if(MQLInfoInteger(MQL_TESTER)) return;
    panelStateFile=PanelPersistenceIdentity();
@@ -76,11 +115,13 @@ void LoadPanelState()
       ArrayResize(trailingPositionTickets,k+1);ArrayResize(favorablePrices,k+1);
       trailingPositionTickets[k]=ticket;favorablePrices[k]=best;
    }
+   lastSavedPanelRecord=record;
    csmPanelStatus="Estado restaurado; revisa niveles antes de operar";
 }
 void SavePanelState()
 {
    if(!panelStateReady || panelStateFile=="" || MQLInfoInteger(MQL_TESTER)) return;
+   lastStateSave=GetTickCount64();
    // Do not persist an uncommitted price gesture or close confirmation.
    if(chartLineDragging || panelGesture!=0) return;
    double risk=PanelInputNumber("riskval"),amount=PanelInputNumber("amount");
@@ -98,6 +139,7 @@ void SavePanelState()
    record+="|"+StateNumber(stopDistancePoints)+"|"+StateNumber(rewardRiskRatio)+"|"+StateNumber(csmPlannedEntry)+
       "|"+StateNumber(plannedStopLoss)+"|"+StateNumber(plannedTakeProfit)+"|"+StateNumber(breakEvenPrice)+
       "|"+StateNumber(risk)+"|"+StateNumber(amount)+"|"+IntegerToString(count)+pairs;
+   if(record==lastSavedPanelRecord) return;
    string temp=panelStateFile+".tmp";
    int h=FileOpen(temp,FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(h==INVALID_HANDLE){Print("CSM: state write failed ",GetLastError());return;}
@@ -105,5 +147,5 @@ void SavePanelState()
    FileFlush(h);FileClose(h);
    if(written==0 || !FileMove(temp,0,panelStateFile,FILE_REWRITE))
       Print("CSM: state replace failed ",GetLastError());
-   lastStateSave=GetTickCount64();
+   else lastSavedPanelRecord=record;
 }

@@ -1,4 +1,4 @@
-int PanelBaseHeight(){return panelMinimized?126:414;}
+int PanelBaseHeight(){return panelMinimized?(breakEvenShown?155:126):414;}
 void ClampPanelGeometry()
 {
    int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS);
@@ -27,7 +27,7 @@ void RenderPanel()
    DrawPanelInput("riskval",x+319,123,125,savedRiskText);
    DrawPanelInput("points",x+110,152,77,savedPointsText);
    DrawPanelInput("ratio",x+347,152,97,savedRatioText);
-   DrawPanelInput("amount",x+334,326,110,savedAmountText);
+   DrawPanelInput("amount",x+334,297,110,savedAmountText);
    string riskCaption=riskMode==0?"% cuenta":riskMode==1?AccountInfoString(ACCOUNT_CURRENCY):"lotes";
    DrawPanelButton("quickInfo",x,y,444,StringFormat("Rapido: %s %s | SL %.1f pts | R:B %.2f",PanelInputText("riskval"),riskCaption,stopDistancePoints,rewardRiskRatio));
    y+=29;
@@ -111,8 +111,15 @@ void RenderPanel()
       }
       bool visible=by+25<=ch && (bx>=panelX+460*panelDrawScale || bx+bw<=panelX ||
                     by>=panelY+PanelBaseHeight()*panelDrawScale || by+25<=panelY);
-      DrawPanelObjectRaw("beinfo",OBJ_BUTTON,bx,by,bw,25,preview,PanelAccent(CSM_PANEL_NAVY),
-         at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?infoColor:sellColor,10,visible);
+      color ink=at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?infoColor:sellColor;
+      if(visible)
+         DrawPanelObjectRaw("beinfo",OBJ_BUTTON,bx,by,bw,25,preview,PanelAccent(CSM_PANEL_NAVY),ink);
+      else
+         DrawPanelObjectRaw("beinfo",OBJ_BUTTON,panelX+(int)MathRound(8*panelDrawScale),
+            panelY+(int)MathRound((panelMinimized?123:384)*panelDrawScale),
+            (int)MathMax(1,MathRound((panelMinimized?444:415)*panelDrawScale)),
+            (int)MathMax(1,MathRound(25*panelDrawScale)),preview,PanelAccent(CSM_PANEL_NAVY),ink,
+            (int)MathMax(6,MathRound(10*panelDrawScale)));
    }
    else {ForgetPriceLevel("BE");ForgetPanelObject("beinfo");if(count==0) breakEvenShown=false;}
    RenderBrokerPendingLines();

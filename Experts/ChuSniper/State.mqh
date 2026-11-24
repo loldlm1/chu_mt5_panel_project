@@ -41,3 +41,5 @@ string savedRiskText="200",savedPointsText="250",savedRatioText="2",savedAmountT
 string panelStateFile="";
 bool panelStateReady=false;
 ulong lastStateSave=0;
+
+string activePanelScope="",lastSavedPanelRecord="";
