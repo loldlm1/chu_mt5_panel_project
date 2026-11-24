@@ -2,13 +2,19 @@
 
 All accepted updates are recorded here. Project versions use MAJOR.MINOR.PATCH, with one version per merged update. The MQL5 metadata encodes the minor and patch as three digits (e.g. v0.13.0 = 0.130). Intermediate QA commits are part of the same version.
 
-## [0.14.0] — pending acceptance
+## [0.14.0] — 2026-11-24
 
 Story #14, PR #21; tickets #15–#20.
 - Exact Pandora chart style and independent Original/Pandora panel themes.
 - Movable, resizable and compact panel with persistent visual and operational state.
 - Market quick BUY/SELL using shared risk sizing and configured SL/R:B; Grupo default.
-- Pending MetaEditor compilation and Demo QA.
+- Larger quick BUY/SELL buttons (50 px base height), compact two-decimal presentation without reducing execution precision, and resize grip integrated into the status row.
+- Fix stale chart object caches on timeframe changes; restore scoped visual and operational preferences.
+
+### Validation
+- Owner accepted functional HEAD `21b38179d06dc42e68ef571928e1dc1ef7e8ce9a` after reporting successful testing and checking all MetaEditor/Demo acceptance items in PR #21 on 2026-11-24. No additional bugs reported.
+- Direct source review: 40/40 initial static checks and 26/26 focused amendment checks on their respective revisions. No independent native agent, MetaEditor invocation, or broker test run by this chat.
+- Final changelog-only closeout does not alter executable code.
 
 ## [0.13.0] — 2026-11-24
 
