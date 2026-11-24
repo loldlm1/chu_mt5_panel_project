@@ -1,21 +1,44 @@
 bool ImproveStopLoss(PositionRow &row,double level)
 {
    if(!PositionSelectByTicket(row.id)) return false;
+   if(PositionGetString(POSITION_SYMBOL)!=_Symbol) return false;
+   if(!IncludeOtherPositions && PositionGetInteger(POSITION_MAGIC)!=(long)Magic) return false;
    double old=PositionGetDouble(POSITION_SL);
-   if(old>0 && tradeSide*(level-old)<=_Point/2) return false;
+   int direction=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY?1:-1;
+   if(old>0 && direction*(level-old)<=_Point/2) return false;
    return trade.PositionModify(row.id,level,PositionGetDouble(POSITION_TP)) && TradeResultCompleted();
 }
+// A deliberate BE edit can move either way; automatic trailing still only improves.
 void ApplyBreakEvenStops()
 {
-   if(!breakEvenShown) return;
+   if(!breakEvenShown || breakEvenPrice<=0){csmPanelStatus="Selecciona un nivel BE valido";return;}
+   if(!tradeExecutionEnabled){csmPanelStatus="BE: solo Demo hedging";return;}
    PositionRow rows[];
-   int n=CollectManagedPositions(rows), ok=0,protectedCount=0;
+   int n=CollectManagedPositions(rows),ok=0,same=0,failed=0;
+   if(n==0){csmPanelStatus="BE: no hay posiciones elegibles";return;}
+   MqlTick quote;
+   if(!SymbolInfoTick(_Symbol,quote)){csmPanelStatus="BE: sin cotizacion";return;}
+   double level=NormalizeTradePrice(breakEvenPrice);
+   double gap=MathMax(_Point,(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point);
+   double freeze=(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL)*_Point;
    for(int i=0;i<n;i++)
    {
-      if(rows[i].stop>0 && tradeSide*(breakEvenPrice-rows[i].stop)<=_Point/2){protectedCount++;continue;}
-      if(ImproveStopLoss(rows[i],breakEvenPrice)) ok++;
+      if(!PositionSelectByTicket(rows[i].id) || PositionGetString(POSITION_SYMBOL)!=_Symbol ||
+         (!IncludeOtherPositions && PositionGetInteger(POSITION_MAGIC)!=(long)Magic))
+      {failed++;continue;}
+      int direction=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY?1:-1;
+      if(direction!=tradeSide){failed++;continue;}
+      double market=direction>0?quote.bid:quote.ask;
+      double old=PositionGetDouble(POSITION_SL);
+      if(MathAbs(old-level)<=_Point/2){same++;continue;}
+      if(direction*(market-level)<gap-1e-9 ||
+         (freeze>0 && (direction*(market-level)<freeze-1e-9 ||
+                       (old>0 && direction*(market-old)<freeze-1e-9))))
+      {failed++;continue;}
+      if(trade.PositionModify(rows[i].id,level,PositionGetDouble(POSITION_TP)) && TradeResultCompleted()) ok++;
+      else {failed++;PrintFormat("CSM BE #%I64u: %s",rows[i].id,trade.ResultRetcodeDescription());}
    }
-   csmPanelStatus=StringFormat("Stops: %d aplicados / %d conservados / %d sin aplicar",ok,protectedCount,n-ok-protectedCount);
+   csmPanelStatus=StringFormat("BE: %d aplicados / %d iguales / %d rechazados",ok,same,failed);
 }
 void CloseManagedPositions(bool all)
 {
@@ -69,26 +92,37 @@ void CloseManagedPositions(bool all)
 }
 void UpdateTrailingStops()
 {
-   if(!tradeExecutionEnabled || trailingMode==0 || TrailPoints<=0 || StepPoints<=0 || ActivationPoints<=0) return;
-   MqlTick q;
-   if(!SymbolInfoTick(_Symbol,q)) return;
-   double market=tradeSide>0?q.bid:q.ask;
-   PositionRow rows[];
-   int n=CollectManagedPositions(rows);
-   double gap=MathMax(_Point,SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point);
-   for(int i=0;i<n;i++)
+   if(!tradeExecutionEnabled || trailingMode!=1 || ActivationPoints<=0 || TrailPoints<=0) return;
+   MqlTick quote;
+   if(!SymbolInfoTick(_Symbol,quote)) return;
+   double gap=MathMax(_Point,(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point);
+   // Trailing applies to every eligible ticket independently of groupMode or tradeSide.
+   for(int i=0;i<PositionsTotal();i++)
    {
+      ulong ticket=PositionGetTicket(i);
+      if(!ticket || PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if(!IncludeOtherPositions && PositionGetInteger(POSITION_MAGIC)!=(long)Magic) continue;
+      int direction=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY?1:-1;
+      double market=direction>0?quote.bid:quote.ask;
+      double entry=PositionGetDouble(POSITION_PRICE_OPEN);
       int key=ArraySize(trailingPositionTickets);
-      for(int j=0;j<ArraySize(trailingPositionTickets);j++) if(trailingPositionTickets[j]==rows[i].id){key=j;break;}
-      if(key==ArraySize(trailingPositionTickets)){ArrayResize(trailingPositionTickets,key+1);ArrayResize(favorablePrices,key+1);trailingPositionTickets[key]=rows[i].id;favorablePrices[key]=market;}
-      if(tradeSide*(market-favorablePrices[key])>0) favorablePrices[key]=market;
-      double gain=tradeSide*(favorablePrices[key]-rows[i].open)/_Point;
+      for(int j=0;j<ArraySize(trailingPositionTickets);j++)
+         if(trailingPositionTickets[j]==ticket){key=j;break;}
+      if(key==ArraySize(trailingPositionTickets))
+      {
+         ArrayResize(trailingPositionTickets,key+1);
+         ArrayResize(favorablePrices,key+1);
+         trailingPositionTickets[key]=ticket;
+         favorablePrices[key]=market;
+      }
+      if(direction*(market-favorablePrices[key])>0) favorablePrices[key]=market;
+      double gain=direction*(favorablePrices[key]-entry)/_Point;
       if(gain<ActivationPoints) continue;
-      double lock=0;
-      if(trailingMode==1) lock=MathFloor((gain-ActivationPoints)/StepPoints)*StepPoints;
-      if(trailingMode==2) lock=gain-TrailPoints;
-      if(trailingMode==3 && gain>=ActivationPoints+StepPoints) lock=MathMax(ActivationPoints,gain-TrailPoints);
-      double level=NormalizeTradePrice(rows[i].open+tradeSide*lock*_Point);
-      if(level>0 && tradeSide*(market-level)>=gap-1e-9) ImproveStopLoss(rows[i],level);
+      double level=NormalizeTradePrice(favorablePrices[key]-direction*TrailPoints*_Point);
+      if(level<=0 || direction*(market-level)<gap-1e-9) continue;
+      PositionRow row;
+      row.id=ticket;
+      // ImproveStopLoss also checks the server's live SL and never worsens it.
+      ImproveStopLoss(row,level);
    }
 }

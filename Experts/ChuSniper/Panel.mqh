@@ -24,25 +24,35 @@ void RenderPanel()
    ENUM_ORDER_TYPE type=SelectedOrderDirection();
    double lot=0,loss=0;
    bool valid=orderPrepared && SymbolInfoTick(_Symbol,q) && BuildOrderPlan(q,type,lot,loss);
+   if(!orderPrepared)
+   {
+      ForgetPriceLevel("Entrada");
+      ForgetPriceLevel("Stop loss");
+      ForgetPriceLevel("Take profit");
+   }
    if(orderPrepared)
    {
-      DrawPriceLevel("Entrada",csmPlannedEntry,buyColor,pendingOrderMode);DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
-      if(!fixedStopMode && !ObjectGetInteger(0,PanelObjectName("points"),OBJPROP_SELECTED))
+      if(pendingOrderMode) DrawPriceLevel("Entrada",csmPlannedEntry,buyColor,true);
+      else ForgetPriceLevel("Entrada");
+      DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);
+      DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
+      // The displayed points are derived from the locked absolute price.
+      // Never overwrite a user editing the distance input.
+      if(!editingStopPoints)
       {
-         // Update on drag and quote changes unless the text edit is focused.
-         if(!editingStopPoints) SetPanelInputText("points",DoubleToString(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point,1));
+         string points=DoubleToString(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point,1);
+         if(PanelInputText("points")!=points) SetPanelInputText("points",points);
       }
    }
    DrawPanelButton("preview",x,y,444,valid?StringFormat("Lote %.4f  |  Riesgo estimado %.2f %s",lot,loss,AccountInfoString(ACCOUNT_CURRENCY)):"Prepara la orden y ajusta los niveles");
    y+=29;
    DrawPanelButton("send",x,y,444,orderPrepared?"Confirmar "+OrderTypeCaption(type):"Confirmar orden",valid?buyColor:CSM_PANEL_NAVY);
    y+=29;
-   string trailModes[]={"Apagado","Objetivos","Distancia","Hibrido"};
-   DrawPanelButton("avg",x,y,150,averagingEnabled?"Promediacion activa":"Promediacion",averagingEnabled?highlightColor:CSM_PANEL_NAVY);
-   DrawPanelButton("trail",x+155,y,289,"Trailing: "+trailModes[trailingMode],trailingMode?highlightColor:CSM_PANEL_NAVY);
+   string trailModes[]={"Apagado","Simple"};
+   DrawPanelButton("trail",x,y,444,"Trailing: "+trailModes[trailingMode],trailingMode?highlightColor:CSM_PANEL_NAVY);
    y+=29;
    PositionRow rows[];
-   int count=CollectManagedPositions(rows);
+   int count=CollectManagedPositions(rows,true);
    double floating=0;
    for(int i=0;i<count;i++) floating+=rows[i].floatPL;
    double at=breakEvenShown?ProfitAtPriceLevel(rows,breakEvenPrice):0,bal=AccountInfoDouble(ACCOUNT_BALANCE);
@@ -60,13 +70,15 @@ void RenderPanel()
    if(breakEvenShown && count>0)
    {
       DrawPriceLevel("BE",breakEvenPrice,highlightColor,true);
-      string preview=at==EMPTY_VALUE?"Cierre estimado no disponible":StringFormat("Cierre %+.2f %s (%+.2f%%) | Retroceso %.2f",at,AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
+      string preview=at==EMPTY_VALUE?"Cierre estimado no disponible":StringFormat("Cierre aprox. %+.2f %s (%+.2f%%) | Retroceso %.2f",at,AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
       int bx=484,by=y;
       int py=0,px=0;
       if(ChartTimePriceToXY(0,0,iTime(_Symbol,_Period,0),breakEvenPrice,px,py)) by=MathMax(0,py-27);
       if(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)<900){bx=x;by=y+28;}
       DrawPanelObject("beinfo",OBJ_BUTTON,bx,by,405,25,preview,CSM_PANEL_NAVY,at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?infoColor:sellColor);
    }
-   else {ObjectDelete(0,PanelObjectName("BE"));ObjectDelete(0,PanelObjectName("beinfo"));}
+   else {ForgetPriceLevel("BE");ForgetPanelObject("beinfo");if(count==0) breakEvenShown=false;}
+   RenderBrokerPendingLines();
+   lastPanelRefresh=GetTickCount64();panelDirty=false;
    ChartRedraw();
 }

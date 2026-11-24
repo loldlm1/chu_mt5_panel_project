@@ -1,5 +1,5 @@
 #property strict
-#property version "0.12"
+#property version "0.130"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
 #include "ChuSniper/ChartObjects.mqh"
@@ -7,6 +7,7 @@
 #include "ChuSniper/Orders.mqh"
 #include "ChuSniper/TradeManagement.mqh"
 #include "ChuSniper/Panel.mqh"
+#include "ChuSniper/ChartInteraction.mqh"
 
 int OnInit()
 {
@@ -20,36 +21,55 @@ int OnInit()
    tradeExecutionEnabled=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO || MQLInfoInteger(MQL_TESTER))
          && AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
    csmPanelStatus=tradeExecutionEnabled?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
+   InitializeChartInteraction();
    EventSetMillisecondTimer(250);
    RenderPanel();
    return INIT_SUCCEEDED;
 }
-void OnDeinit(const int reason){EventKillTimer();ObjectsDeleteAll(0,panelObjectPrefix);}
-void OnTimer(){UpdateTrailingStops();RenderPanel();}
+void OnDeinit(const int reason){EventKillTimer();RestoreChartInteraction();ObjectsDeleteAll(0,panelObjectPrefix);}
+void OnTimer()
+{
+   ulong now=GetTickCount64();
+   if(chartLineDragging && now-chartDragLastEvent>20000) CancelChartDrag();
+   // Keep server-side stop management active even during a chart gesture.
+   UpdateTrailingStops();
+   if(chartLineDragging) return; // No periodic repaint during a live drag.
+   if(panelDirty || now-lastPanelRefresh>=750) RenderPanel();
+}
 void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
 {
+   if(id==CHARTEVENT_MOUSE_MOVE)
+   {
+      HandleChartMouseMove((int)lp,(int)dp,sp);
+      return;
+   }
    if(StringFind(sp,panelObjectPrefix)!=0) return;
    string k=StringSubstr(sp,StringLen(panelObjectPrefix));
-   if(id==CHARTEVENT_OBJECT_DRAG)
-   {
-      double price=NormalizeTradePrice(ObjectGetDouble(0,sp,OBJPROP_PRICE));
-      if(k=="BE") breakEvenPrice=price;
-      if(k=="Entrada" && pendingOrderMode) csmPlannedEntry=price;
-      if(k=="Stop loss"){plannedStopLoss=price;fixedStopMode=false;}
-      if(k=="Take profit"){plannedTakeProfit=price;riskRewardMode=false;}
-      RenderPanel();return;
-   }
+   if(id==CHARTEVENT_OBJECT_DRAG) return; // Only mouse release commits EA drags.
    if(id==CHARTEVENT_OBJECT_ENDEDIT)
    {
       if(k=="points")
       {
          editingStopPoints=false;
-         if(PanelInputNumber("points")>0){stopDistancePoints=PanelInputNumber("points");fixedStopMode=true;}
+         if(PanelInputNumber("points")>0)
+         {
+            stopDistancePoints=PanelInputNumber("points");fixedStopMode=true;
+            if(orderPrepared)
+            {
+               plannedStopLoss=NormalizeTradePrice(csmPlannedEntry-tradeSide*stopDistancePoints*_Point);
+               if(riskRewardMode) plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+            }
+         }
       }
-      if(k=="ratio" && PanelInputNumber(k)>0){rewardRiskRatio=PanelInputNumber(k);riskRewardMode=true;}
+      if(k=="ratio" && PanelInputNumber(k)>0)
+      {
+         rewardRiskRatio=PanelInputNumber(k);riskRewardMode=true;
+         if(orderPrepared) plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+      }
       RenderPanel();return;
    }
-   if(id!=CHARTEVENT_OBJECT_CLICK) return;
+   if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging) return;
+   if(PriceLevelSlot(k)>=0) return;
    if(k=="points"){editingStopPoints=true;return;}
    ObjectSetInteger(0,sp,OBJPROP_STATE,false);
    if(k!="close") closeConfirmationDeadline=0;
@@ -62,15 +82,26 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       if(orderPrepared && pendingOrderMode)
       {
          MqlTick q;
-         if(SymbolInfoTick(_Symbol,q)) csmPlannedEntry=NormalizeTradePrice((tradeSide>0?q.ask:q.bid)+tradeSide*stopDistancePoints*_Point);
+         if(SymbolInfoTick(_Symbol,q))
+         {
+            double entry=NormalizeTradePrice((tradeSide>0?q.ask:q.bid)+tradeSide*stopDistancePoints*_Point);
+            double delta=entry-csmPlannedEntry;
+            csmPlannedEntry=entry;
+            plannedStopLoss=NormalizeTradePrice(plannedStopLoss+delta);
+            plannedTakeProfit=NormalizeTradePrice(plannedTakeProfit+delta);
+         }
       }
    }
    if(k=="percent" && riskMode!=0){riskMode=0;SetPanelInputText("riskval","1");}
    if(k=="money" && riskMode!=1){riskMode=1;SetPanelInputText("riskval","200");}
    if(k=="lot" && riskMode!=2){riskMode=2;SetPanelInputText("riskval",DoubleToString(SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),4));}
-   if(k=="tpMode") riskRewardMode=!riskRewardMode;
-   if(k=="avg") averagingEnabled=!averagingEnabled;
-   if(k=="trail"){trailingMode=(trailingMode+1)%4;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);}
+   if(k=="tpMode")
+   {
+      riskRewardMode=!riskRewardMode;
+      if(riskRewardMode && orderPrepared)
+         plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+   }
+   if(k=="trail"){trailingMode=(trailingMode+1)%2;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);}
    if(k=="units") {percentTargetMode=!percentTargetMode;SetPanelInputText("amount",percentTargetMode?"50":"100");}
    if(k=="be")
    {
@@ -92,4 +123,13 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       else closeConfirmationDeadline=GetTickCount64()+4000;
    }
    RenderPanel();
+}
+
+void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result)
+{
+   // SL-only modifications do not change the entry commissions.
+   if(trans.type==TRADE_TRANSACTION_DEAL_ADD || trans.type==TRADE_TRANSACTION_DEAL_UPDATE ||
+      trans.type==TRADE_TRANSACTION_DEAL_DELETE)
+      InvalidatePositionFeeCache();
+   panelDirty=true;
 }
