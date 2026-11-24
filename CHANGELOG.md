@@ -2,6 +2,14 @@
 
 All accepted updates are recorded here. Project versions use MAJOR.MINOR.PATCH, with one version per merged update. The MQL5 metadata encodes the minor and patch as three digits (e.g. v0.13.0 = 0.130). Intermediate QA commits are part of the same version.
 
+## [0.14.0] — pending acceptance
+
+Story #14, PR #21; tickets #15–#20.
+- Exact Pandora chart style and independent Original/Pandora panel themes.
+- Movable, resizable and compact panel with persistent visual and operational state.
+- Market quick BUY/SELL using shared risk sizing and configured SL/R:B; Grupo default.
+- Pending MetaEditor compilation and Demo QA.
+
 ## [0.13.0] — 2026-11-24
 
 Story [#7](https://github.com/loldlm1/chu_mt5_panel_project/issues/7), PR [#13](https://github.com/loldlm1/chu_mt5_panel_project/pull/13), tickets #8–#12.

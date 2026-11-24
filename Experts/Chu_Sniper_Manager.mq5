@@ -1,5 +1,5 @@
 #property strict
-#property version "0.130"
+#property version "0.140"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
 #include "ChuSniper/ChartStyle.mqh"
@@ -9,6 +9,7 @@
 #include "ChuSniper/TradeManagement.mqh"
 #include "ChuSniper/Panel.mqh"
 #include "ChuSniper/ChartInteraction.mqh"
+#include "ChuSniper/PanelPersistence.mqh"
 
 int OnInit()
 {
@@ -18,12 +19,22 @@ int OnInit()
    tradeExecutionEnabled=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO || MQLInfoInteger(MQL_TESTER))
          && AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
    csmPanelStatus=tradeExecutionEnabled?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
+   ObjectsDeleteAll(0,panelObjectPrefix);
+   LoadPanelState();
    InitializeChartInteraction();
    EventSetMillisecondTimer(250);
    RenderPanel();
    return INIT_SUCCEEDED;
 }
-void OnDeinit(const int reason){EventKillTimer();if(chartLineDragging) CancelChartDrag();FinishPanelGesture();RestoreChartInteraction();ObjectsDeleteAll(0,panelObjectPrefix);}
+void OnDeinit(const int reason)
+{
+   EventKillTimer();
+   if(chartLineDragging) CancelChartDrag();
+   FinishPanelGesture();
+   SavePanelState();
+   RestoreChartInteraction();
+   ObjectsDeleteAll(0,panelObjectPrefix);
+}
 void OnTimer()
 {
    ulong now=GetTickCount64();
@@ -33,6 +44,7 @@ void OnTimer()
    UpdateTrailingStops();
    if(chartLineDragging || panelGesture!=0) return; // No periodic repaint during a live gesture.
    if(panelDirty || now-lastPanelRefresh>=750) RenderPanel();
+   if(panelStateReady && now-lastStateSave>=5000) SavePanelState();
 }
 void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
 {

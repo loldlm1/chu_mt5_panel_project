@@ -37,3 +37,7 @@ double panelGestureStartScale=1.0;
 bool suppressPanelClick=false;
 ulong panelGestureLastEvent=0;
 string savedRiskText="200",savedPointsText="250",savedRatioText="2",savedAmountText="100";
+
+string panelStateFile="";
+bool panelStateReady=false;
+ulong lastStateSave=0;

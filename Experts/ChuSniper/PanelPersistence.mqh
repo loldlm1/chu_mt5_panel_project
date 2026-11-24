@@ -1,0 +1,109 @@
+// A hidden chart-profile marker survives the EA's volatile CSM_ object cleanup.
+// Scope includes the account, server, symbol, magic and chart instance; never TF.
+string PanelPersistenceIdentity()
+{
+   string marker="ChuSniper_StateIdentity";
+   string identity="";
+   if(ObjectFind(0,marker)>=0) identity=ObjectGetString(0,marker,OBJPROP_TEXT);
+   if(identity=="")
+   {
+      identity=StringFormat("%I64d_%I64u",ChartID(),GetMicrosecondCount());
+      if(ObjectFind(0,marker)<0 && !ObjectCreate(0,marker,OBJ_LABEL,0,0,0)) return "";
+      ObjectSetString(0,marker,OBJPROP_TEXT,identity);
+      ObjectSetInteger(0,marker,OBJPROP_TIMEFRAMES,OBJ_NO_PERIODS);
+      ObjectSetInteger(0,marker,OBJPROP_HIDDEN,true);
+      ObjectSetInteger(0,marker,OBJPROP_SELECTABLE,false);
+   }
+   // Never use arbitrary object text as a path.
+   for(int i=0;i<StringLen(identity);i++)
+   {
+      ushort c=StringGetCharacter(identity,i);
+      if((c<'0' || c>'9') && c!='_' && c!='-') return "";
+   }
+   if(StringLen(identity)>64) return "";
+   string scope=AccountInfoString(ACCOUNT_SERVER)+"|"+_Symbol;
+   uint hash=2166136261;
+   for(int i=0;i<StringLen(scope);i++) hash=(hash^(uint)StringGetCharacter(scope,i))*16777619;
+   return StringFormat("CSM_state_%I64d_%I64u_%u_%s.txt",AccountInfoInteger(ACCOUNT_LOGIN),Magic,hash,identity);
+}
+bool ValidStateNumber(const double v){return MathIsValidNumber(v) && v>=0;}
+string StateNumber(const double v){return DoubleToString(v,16);}
+bool OwnedTrailingTicket(const ulong ticket)
+{
+   return ticket>0 && PositionSelectByTicket(ticket) && PositionGetString(POSITION_SYMBOL)==_Symbol &&
+          (IncludeOtherPositions || PositionGetInteger(POSITION_MAGIC)==(long)Magic);
+}
+void LoadPanelState()
+{
+   // Tester runs must not inherit a live chart's state.
+   if(MQLInfoInteger(MQL_TESTER)) return;
+   panelStateFile=PanelPersistenceIdentity();
+   if(panelStateFile=="") {Print("CSM: chart identity unavailable");return;}
+   panelStateReady=true;
+   int h=FileOpen(panelStateFile,FILE_READ|FILE_TXT|FILE_ANSI);
+   if(h==INVALID_HANDLE) return;
+   string record=FileReadString(h);FileClose(h);
+   string a[];
+   int n=StringSplit(record,'|',a);
+   if(n<24 || a[0]!="CSM140"){Print("CSM: invalid saved state");return;}
+   int side=(int)StringToInteger(a[5]),risk=(int)StringToInteger(a[6]),trail=(int)StringToInteger(a[7]);
+   double scale=StringToDouble(a[3]),points=StringToDouble(a[15]),ratio=StringToDouble(a[16]);
+   double entry=StringToDouble(a[17]),sl=StringToDouble(a[18]),tp=StringToDouble(a[19]),be=StringToDouble(a[20]);
+   double riskValue=StringToDouble(a[21]),amount=StringToDouble(a[22]);
+   int count=(int)StringToInteger(a[23]);
+   bool valid=(side==1 || side==-1) && risk>=0 && risk<=2 && trail>=0 && trail<=1 &&
+              scale>=0.65 && scale<=2.0 && points>0 && ratio>0 &&
+              ValidStateNumber(entry) && ValidStateNumber(sl) && ValidStateNumber(tp) && ValidStateNumber(be) &&
+              MathIsValidNumber(points) && MathIsValidNumber(ratio) && count>=0 && count<=10000 && n==24+count*2 &&
+              ValidStateNumber(riskValue) && ValidStateNumber(amount);
+   for(int i=8;i<=14;i++) if(a[i]!="0" && a[i]!="1") valid=false;
+   if(a[4]!="0" && a[4]!="1") valid=false;
+   if(!valid){Print("CSM: rejected saved state");return;}
+   panelX=(int)MathMax(0,MathMin(100000,StringToInteger(a[1])));
+   panelY=(int)MathMax(0,MathMin(100000,StringToInteger(a[2])));
+   panelScale=scale;
+   panelMinimized=a[4]=="1";tradeSide=side;riskMode=risk;trailingMode=trail;
+   groupMode=a[8]=="1";pendingOrderMode=a[9]=="1";orderPrepared=a[10]=="1" && entry>0 && sl>0 && tp>0;
+   fixedStopMode=a[11]=="1";riskRewardMode=a[12]=="1";percentTargetMode=a[13]=="1";breakEvenShown=a[14]=="1" && be>0;
+   stopDistancePoints=points;rewardRiskRatio=ratio;csmPlannedEntry=entry;plannedStopLoss=sl;plannedTakeProfit=tp;breakEvenPrice=be;
+   savedRiskText=a[21];savedPointsText=DoubleToString(points,1);savedRatioText=DoubleToString(ratio,4);savedAmountText=a[22];
+   for(int i=0;i<count;i++)
+   {
+      ulong ticket=(ulong)StringToInteger(a[24+2*i]);
+      double best=StringToDouble(a[25+2*i]);
+      if(!OwnedTrailingTicket(ticket) || !ValidStateNumber(best) || best<=0) continue;
+      int k=ArraySize(trailingPositionTickets);
+      ArrayResize(trailingPositionTickets,k+1);ArrayResize(favorablePrices,k+1);
+      trailingPositionTickets[k]=ticket;favorablePrices[k]=best;
+   }
+   csmPanelStatus="Estado restaurado; revisa niveles antes de operar";
+}
+void SavePanelState()
+{
+   if(!panelStateReady || panelStateFile=="" || MQLInfoInteger(MQL_TESTER)) return;
+   // Do not persist an uncommitted price gesture or close confirmation.
+   if(chartLineDragging || panelGesture!=0) return;
+   double risk=PanelInputNumber("riskval"),amount=PanelInputNumber("amount");
+   if(!ValidStateNumber(risk) || !ValidStateNumber(amount)) return;
+   string pairs="";
+   int count=0;
+   for(int i=0;i<ArraySize(trailingPositionTickets);i++)
+   {
+      if(!OwnedTrailingTicket(trailingPositionTickets[i]) || favorablePrices[i]<=0 || !MathIsValidNumber(favorablePrices[i])) continue;
+      pairs+="|"+StringFormat("%I64u",trailingPositionTickets[i])+"|"+StateNumber(favorablePrices[i]);count++;
+   }
+   string record=StringFormat("CSM140|%d|%d|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+      panelX,panelY,StateNumber(panelScale),(int)panelMinimized,tradeSide,riskMode,trailingMode,
+      (int)groupMode,(int)pendingOrderMode,(int)orderPrepared,(int)fixedStopMode,(int)riskRewardMode,(int)percentTargetMode,(int)breakEvenShown);
+   record+="|"+StateNumber(stopDistancePoints)+"|"+StateNumber(rewardRiskRatio)+"|"+StateNumber(csmPlannedEntry)+
+      "|"+StateNumber(plannedStopLoss)+"|"+StateNumber(plannedTakeProfit)+"|"+StateNumber(breakEvenPrice)+
+      "|"+StateNumber(risk)+"|"+StateNumber(amount)+"|"+IntegerToString(count)+pairs;
+   string temp=panelStateFile+".tmp";
+   int h=FileOpen(temp,FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(h==INVALID_HANDLE){Print("CSM: state write failed ",GetLastError());return;}
+   uint written=FileWriteString(h,record+"\r\n");
+   FileFlush(h);FileClose(h);
+   if(written==0 || !FileMove(temp,0,panelStateFile,FILE_REWRITE))
+      Print("CSM: state replace failed ",GetLastError());
+   lastStateSave=GetTickCount64();
+}
