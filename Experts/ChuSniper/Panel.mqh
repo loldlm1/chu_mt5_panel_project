@@ -33,7 +33,7 @@ void RenderPanel()
    ClampPanelGeometry();
    int x=8,y=7;
    DrawPanelObject("bg",OBJ_RECTANGLE_LABEL,0,0,460,PanelBaseHeight(),"",PanelBackground(),PanelBorder());
-   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.14.0 | DEMO");
+   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.15.0 | "+AccountModeCaption()+(SupportedTradingAccount()?"":" (solo vista)"));
    DrawPanelButton("minimize",x+412,y,32,panelMinimized?"+":"-");
    y+=29;
    MqlTick quickQuote;
@@ -80,16 +80,10 @@ void RenderPanel()
       else ForgetPriceLevel("Entrada");
       DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);
       DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
-      // The displayed points are derived from the locked absolute price.
-      // Never overwrite a user editing the distance input.
-      if(!editingStopPoints)
-      {
-         string points=DoubleToString(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point,16);
-         if(PanelInputRaw("points")!=points || PanelInputText("points")!=PanelNumberText(ParsePanelNumber(points)))
-            SetPanelInputText("points",points);
-      }
+      // The input remains the requested distance; the preview shows the effective SL.
+      // Rendering does not change the operator's settings.
    }
-   DrawPanelButton("preview",x,y,444,valid?StringFormat("Lote %s  |  Riesgo estimado %.2f %s",PanelNumberText(lot),loss,AccountInfoString(ACCOUNT_CURRENCY)):"Prepara la orden y ajusta los niveles");
+   DrawPanelButton("preview",x,y,444,valid?StringFormat("Lote %s | SL %s pts | Riesgo %.2f %s",PanelNumberText(lot),PanelNumberText(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point),loss,AccountInfoString(ACCOUNT_CURRENCY)):(orderPrepared?"Niveles/riesgo invalidos; revisa o confirma ajuste":"Prepara la orden y ajusta los niveles"));
    y+=29;
    DrawPanelButton("send",x,y,444,orderPrepared?"Confirmar "+OrderTypeCaption(type):"Confirmar orden",valid?buyColor:CSM_PANEL_NAVY);
    y+=29;

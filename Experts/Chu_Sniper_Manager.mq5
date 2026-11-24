@@ -1,10 +1,11 @@
 #property strict
-#property version "0.140"
+#property version "0.150"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
 #include "ChuSniper/ChartStyle.mqh"
 #include "ChuSniper/ChartObjects.mqh"
 #include "ChuSniper/Positions.mqh"
+#include "ChuSniper/BrokerConstraints.mqh"
 #include "ChuSniper/Orders.mqh"
 #include "ChuSniper/TradeManagement.mqh"
 #include "ChuSniper/Panel.mqh"
@@ -16,9 +17,9 @@ int OnInit()
    trade.SetExpertMagicNumber(Magic);
    trade.SetTypeFillingBySymbol(_Symbol);
    ApplyPandoraChartStyle(ChartID());
-   tradeExecutionEnabled=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO || MQLInfoInteger(MQL_TESTER))
-         && AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
-   csmPanelStatus=tradeExecutionEnabled?"Demo: selecciona Comprar o Vender":"Vista previa: ejecucion disponible en demo";
+   ArrayResize(trailingRetryAfter,0);
+   tradeExecutionEnabled=SupportedTradingAccount();
+   csmPanelStatus=tradeExecutionEnabled?AccountModeCaption()+": selecciona Comprar o Vender":"Vista previa: requiere Demo/Real hedging";
    ObjectsDeleteAll(0,panelObjectPrefix);
    // OnInit may run again without a new EA instance; discard stale object caches.
    ArrayResize(panelObjects,0);ArrayResize(priceLevels,0);InvalidatePositionFeeCache();
@@ -74,8 +75,8 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
             stopDistancePoints=PanelInputNumber("points");fixedStopMode=true;
             if(orderPrepared)
             {
-               plannedStopLoss=NormalizeTradePrice(csmPlannedEntry-tradeSide*stopDistancePoints*_Point);
-               if(riskRewardMode) plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+               plannedStopLoss=csmPlannedEntry-tradeSide*stopDistancePoints*_Point;
+               if(riskRewardMode) plannedTakeProfit=csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio;
             }
          }
       }
@@ -86,6 +87,10 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       }
       if(k=="riskval" || k=="amount" || k=="points" || k=="ratio")
          SetPanelInputText(k,DoubleToString(PanelInputNumber(k),16));
+      if(orderPrepared && (k=="points" || k=="ratio"))
+      {
+         bool adjusted=false;AdaptManualPlan(riskRewardMode,adjusted);
+      }
       RenderPanel();return;
    }
    if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging || panelGesture!=0 || suppressPanelClick) return;
@@ -135,7 +140,11 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       if(riskRewardMode && orderPrepared)
          plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
    }
-   if(k=="trail"){trailingMode=(trailingMode+1)%2;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);}
+   if(orderPrepared && (k=="mode" || k=="tpMode"))
+   {
+      bool adjusted=false;AdaptManualPlan(k=="tpMode" && riskRewardMode,adjusted);
+   }
+   if(k=="trail"){trailingMode=(trailingMode+1)%2;ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);ArrayResize(trailingRetryAfter,0);}
    if(k=="units") {percentTargetMode=!percentTargetMode;SetPanelInputText("amount",percentTargetMode?"50":"100");}
    if(k=="be")
    {
@@ -149,7 +158,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    }
    if(k=="send" || k=="apply" || k=="realize" || k=="close")
    {
-      if(!tradeExecutionEnabled) csmPanelStatus="Ejecucion disponible solo en demo hedging";
+      if(!TradePermissionsAllowed()) csmPanelStatus="Trading no permitido: requiere hedging y permisos";
       else if(k=="send") SubmitOrder();
       else if(k=="apply") ApplyBreakEvenStops();
       else if(k=="realize") CloseManagedPositions(false);

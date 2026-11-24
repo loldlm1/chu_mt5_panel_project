@@ -2,6 +2,18 @@
 
 All accepted updates are recorded here. Project versions use MAJOR.MINOR.PATCH, with one version per merged update. The MQL5 metadata encodes the minor and patch as three digits (e.g. v0.13.0 = 0.130). Intermediate QA commits are part of the same version.
 
+## [0.15.0] — 2026-11-24
+
+Story #22, PR #29; tickets #23–#28.
+- Shared broker-aware order preparation, safe tick-grid alignment and adaptive SL/TP.
+- Protected manual and quick entries with effective-stop sizing and OrderCheck; no unprotected fallback.
+- Freeze-aware pending edits, per-ticket adaptive BE and monotonic trailing.
+- Demo/Real hedging support, account mode in the header, fresh risk default 1% per entry, no artificial group cap.
+### Validation
+- Owner accepted functional HEAD `72ea954d4f9334d5f60fade6eb712089ed90e21a` on 2026-11-24, marked all PR acceptance checks and reported successful behavior in Demo and a personally conducted minimum-lot LIVE/REAL QA. The owner expressly authorized squash merge. The live test is owner-reported, not independently verified; no live trade was performed by this workflow.
+- Direct source review: 39/39 static checks and 20/20 arithmetic cases using mechanically translated pure functions in JavaScript, not native MQL5 execution. No independent native agent review, MetaEditor invocation or broker test by this chat; raw compiler log not received.
+- Final changelog-only closeout does not alter executable code. Broker conditions, slippage and gaps remain variable; successful QA does not guarantee all future executions.
+
 ## [0.14.0] — 2026-11-24
 
 Story #14, PR #21; tickets #15–#20.

@@ -7,13 +7,14 @@ enum ENUM_CSM_PANEL_THEME { PANEL_ORIGINAL=0, PANEL_PANDORA=1 };
 input ENUM_CSM_PANEL_THEME PanelTheme=PANEL_ORIGINAL;
 CTrade trade;
 string panelObjectPrefix="CSM_",csmPanelStatus="";
-int tradeSide=1, riskMode=1, trailingMode=0;
+int tradeSide=1, riskMode=0, trailingMode=0;
 bool groupMode=true, pendingOrderMode=false, orderPrepared=false, fixedStopMode=false, riskRewardMode=true, percentTargetMode=false, breakEvenShown=false, tradeExecutionEnabled=false;
 double csmPlannedEntry=0,plannedStopLoss=0,plannedTakeProfit=0,stopDistancePoints=250,rewardRiskRatio=2,breakEvenPrice=0;
 ulong closeConfirmationDeadline=0;
 bool editingStopPoints=false;
 ulong trailingPositionTickets[];
 double favorablePrices[];
+ulong trailingRetryAfter[]; // transient server-rejection cooldown, never persisted
 #define CSM_PANEL_NAVY C'20,30,43'
 color textColor=C'225,232,241', highlightColor=C'255,215,49', infoColor=C'70,169,255', sellColor=C'255,100,100', buyColor=C'42,192,179';
 
@@ -36,7 +37,7 @@ int panelGesture=0,panelGestureX=0,panelGestureY=0,panelGestureStartX=0,panelGes
 double panelGestureStartScale=1.0;
 bool suppressPanelClick=false;
 ulong panelGestureLastEvent=0;
-string savedRiskText="200",savedPointsText="250",savedRatioText="2",savedAmountText="100";
+string savedRiskText="1",savedPointsText="250",savedRatioText="2",savedAmountText="100";
 
 string panelStateFile="";
 bool panelStateReady=false;
