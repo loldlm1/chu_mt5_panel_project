@@ -147,3 +147,40 @@ bool SelectEntryFilling(const ENUM_ORDER_TYPE type,const BrokerRules &b,ENUM_ORD
    if(b.execution!=SYMBOL_TRADE_EXECUTION_MARKET){filling=ORDER_FILLING_RETURN;return true;}
    return false;
 }
+
+// Modification rules are distinct from placement. A frozen existing level
+// cannot be fixed merely by moving the requested new stop.
+bool ExistingProtectionFrozen(const int dir,const double market,const double sl,
+                              const double tp,const BrokerRules &b)
+{
+   if(b.freezeGap<=0) return false;
+   return (sl>0 && dir*(market-sl)<=b.freezeGap+1e-9) ||
+          (tp>0 && dir*(tp-market)<=b.freezeGap+1e-9);
+}
+bool CandidateStopValid(const int dir,const double market,const double sl,const BrokerRules &b)
+{
+   return OnBrokerGrid(sl,b) && dir*(market-sl)>=b.stopGap-1e-9 &&
+          (b.freezeGap<=0 || dir*(market-sl)>b.freezeGap+1e-9);
+}
+// 0: no change possible, 1: exact, 2: adapted, 3: already equal, 4: frozen.
+int ResolvePositionStop(const int dir,const MqlTick &q,const BrokerRules &b,
+                        const double wanted,const double oldSL,const double oldTP,
+                        const bool allowExactRetreat,double &level)
+{
+   if(!ValidBrokerQuote(q) || !MathIsValidNumber(wanted) || wanted<=0) return 0;
+   double market=dir>0?q.bid:q.ask;
+   level=NormalizeDouble(MathRound(wanted/b.tick)*b.tick,_Digits);
+   if(oldSL>0 && MathAbs(oldSL-level)<=b.tick*1e-6) return 3;
+   if(ExistingProtectionFrozen(dir,market,oldSL,oldTP,b)) return 4;
+   // Preserving an existing TP is mandatory; never remove or adjust it as fallback.
+   if(oldTP>0 && (!OnBrokerGrid(oldTP,b) || dir*(oldTP-market)<b.stopGap-1e-9)) return 0;
+   bool exact=CandidateStopValid(dir,market,level,b);
+   if(!exact)
+   {
+      double gap=MathMax(b.stopGap,b.freezeGap+b.tick);
+      level=BrokerGrid(dir>0?MathMin(wanted,market-gap):MathMax(wanted,market+gap),b,-dir);
+      if(!CandidateStopValid(dir,market,level,b)) return 0;
+   }
+   if(oldSL>0 && (!exact || !allowExactRetreat) && dir*(level-oldSL)<=b.tick*1e-6) return 0;
+   return exact?1:2;
+}

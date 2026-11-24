@@ -223,31 +223,30 @@ void RenderBrokerPendingLines()
    }
 }
 
-bool PendingLevelValid(const bool buy,const double entry,const double sl,const double tp,
-                       const MqlTick &quote,string &reason)
+bool PendingLevelValid(const ENUM_ORDER_TYPE type,const double entry,const double sl,const double tp,
+                       const MqlTick &quote,const BrokerRules &b,string &reason)
 {
-   double gap=MathMax(_Point,(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_STOPS_LEVEL)*_Point);
+   bool buy=BuyOrderType(type);
    double market=buy?quote.ask:quote.bid;
-   int direction=buy?1:-1;
-   if(entry<=0 || MathAbs(entry-market)<gap-1e-9)
-   {
-      reason="Entrada demasiado cerca del precio actual";
-      return false;
-   }
-   if((sl>0 && direction*(entry-sl)<gap-1e-9) ||
-      (tp>0 && direction*(tp-entry)<gap-1e-9))
-   {
-      reason="SL/TP incompatible con la nueva entrada";
-      return false;
-   }
+   int dir=buy?1:-1;
+   if(!ValidBrokerQuote(quote) || !PendingEntryType(type) || !EntryTypeAllowed(type,b) ||
+      !OnBrokerGrid(entry,b) || PendingOutward(type)*(entry-market)<b.stopGap-1e-9)
+   {reason="Entrada/tipo no valido por stops level";return false;}
+   if((sl>0 && (!OnBrokerGrid(sl,b) || dir*(entry-sl)<b.stopGap-1e-9)) ||
+      (tp>0 && (!OnBrokerGrid(tp,b) || dir*(tp-entry)<b.stopGap-1e-9)))
+   {reason="SL/TP incompatible con nueva entrada";return false;}
    return true;
+}
+bool PendingFrozen(const double entry,const double market,const BrokerRules &b)
+{
+   return b.freezeGap>0 && MathAbs(entry-market)<=b.freezeGap+1e-9;
 }
 
 void AdjustBrokerPendingOrder(const string key,const double wantedPrice,const double expectedEntry,const double expectedSL,const double expectedTP)
 {
-   if(!tradeExecutionEnabled)
+   if(!TradePermissionsAllowed())
    {
-      csmPanelStatus="Pendientes: solo cuenta Demo hedging";
+      csmPanelStatus="Pendientes: trading no permitido";
       return;
    }
    ulong ticket=(ulong)StringToInteger(StringSubstr(key,StringLen("Pending_")));
@@ -270,8 +269,9 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice,const do
    ENUM_ORDER_TYPE_TIME timeType=(ENUM_ORDER_TYPE_TIME)OrderGetInteger(ORDER_TYPE_TIME);
    datetime expiration=(datetime)OrderGetInteger(ORDER_TIME_EXPIRATION);
    string comment=OrderGetString(ORDER_COMMENT);
-   MqlTick quote;
-   if(!SymbolInfoTick(_Symbol,quote)){csmPanelStatus="Sin cotizacion para editar pendiente";return;}
+   MqlTick quote;BrokerRules b;
+   if(!ReadBrokerRules(b) || !SymbolInfoTick(_Symbol,quote) || !ValidBrokerQuote(quote))
+   {csmPanelStatus="Sin cotizacion/reglas para editar pendiente";return;}
    double price=NormalizeTradePrice(wantedPrice);
    double delta=price-oldPrice;
    double stop=oldStop>0?NormalizeTradePrice(oldStop+delta):0;
@@ -280,13 +280,13 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice,const do
    {csmPanelStatus="Pendiente sin cambios: SL/TP no valido";return;}
    ENUM_ORDER_TYPE newType=PendingOrderType(buy,price,quote);
    string reason="";
-   if(!PendingLevelValid(buy,price,stop,target,quote,reason))
+   if(!PendingLevelValid(newType,price,stop,target,quote,b,reason))
    {
       csmPanelStatus="Pendiente sin cambios: "+reason;
       return;
    }
-   double freeze=(double)SymbolInfoInteger(_Symbol,SYMBOL_TRADE_FREEZE_LEVEL)*_Point;
-   if(freeze>0 && MathAbs(oldPrice-(buy?quote.ask:quote.bid))<freeze)
+   if(PendingFrozen(oldPrice,buy?quote.ask:quote.bid,b) ||
+      PendingFrozen(price,buy?quote.ask:quote.bid,b))
    {
       csmPanelStatus="Pendiente bloqueada por freeze level del broker";
       return;
@@ -298,10 +298,23 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice,const do
    }
    if(newType==oldType)
    {
-      bool changed=trade.OrderModify(ticket,price,stop,target,timeType,expiration,0);
-      csmPanelStatus=(changed && TradeResultCompleted())?
+      MqlTradeRequest modify={};MqlTradeCheckResult check={};MqlTradeResult result={};
+      modify.action=TRADE_ACTION_MODIFY;modify.order=ticket;modify.symbol=_Symbol;
+      modify.magic=Magic;modify.price=price;modify.sl=stop;modify.tp=target;
+      modify.type_time=timeType;modify.expiration=expiration;
+      if(!TradePermissionsAllowed() || !OrderCheck(modify,check) || check.retcode!=0)
+      {csmPanelStatus="Pendiente conservada: "+check.comment;return;}
+      if(!IsManagedPendingOrder(ticket) || PriceChanged(OrderGetDouble(ORDER_PRICE_OPEN),oldPrice,b) ||
+         PriceChanged(OrderGetDouble(ORDER_SL),oldStop,b) || PriceChanged(OrderGetDouble(ORDER_TP),oldTarget,b) ||
+         (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE)!=oldType ||
+         MathAbs(OrderGetDouble(ORDER_VOLUME_CURRENT)-volume)>1e-8 ||
+         (ENUM_ORDER_TYPE_TIME)OrderGetInteger(ORDER_TYPE_TIME)!=timeType ||
+         (datetime)OrderGetInteger(ORDER_TIME_EXPIRATION)!=expiration)
+      {csmPanelStatus="Pendiente cambio en broker";return;}
+      bool changed=OrderSend(modify,result);
+      csmPanelStatus=(changed && (result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_NO_CHANGES))?
             StringFormat("Pendiente #%I64u modificada",ticket):
-            "No se pudo modificar: "+trade.ResultRetcodeDescription();
+            "No se pudo modificar: "+result.comment;
       return;
    }
 
@@ -320,7 +333,7 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice,const do
    request.type_time=timeType;
    request.expiration=expiration;
    request.comment=comment;
-   if(volume<=0 || !OrderCheck(request,check) || check.retcode!=0)
+   if(!TradePermissionsAllowed() || volume<=0 || !OrderCheck(request,check) || check.retcode!=0)
    {
       csmPanelStatus=StringFormat("Pendiente conservada: prevalidacion %u %s",check.retcode,check.comment);
       return;
@@ -338,6 +351,12 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice,const do
       csmPanelStatus="Pendiente cambio en broker: reintenta manualmente";
       return;
    }
+   BrokerRules fresh;MqlTick latest;
+   if(!TradePermissionsAllowed() || !ReadBrokerRules(fresh) || !SymbolInfoTick(_Symbol,latest) ||
+      !ValidBrokerQuote(latest) || PendingFrozen(oldPrice,buy?latest.ask:latest.bid,fresh) ||
+      PendingFrozen(price,buy?latest.ask:latest.bid,fresh) ||
+      !PendingLevelValid(newType,price,stop,target,latest,fresh,reason))
+   {csmPanelStatus="Pendiente conservada: condiciones cambiaron";return;}
    if(!trade.OrderDelete(ticket) || trade.ResultRetcode()!=TRADE_RETCODE_DONE)
    {
       csmPanelStatus="Pendiente original no eliminada: "+trade.ResultRetcodeDescription();
