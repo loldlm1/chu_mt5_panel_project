@@ -5,6 +5,7 @@
 #include "ChuSniper/ChartStyle.mqh"
 #include "ChuSniper/ChartObjects.mqh"
 #include "ChuSniper/Positions.mqh"
+#include "ChuSniper/BrokerConstraints.mqh"
 #include "ChuSniper/Orders.mqh"
 #include "ChuSniper/TradeManagement.mqh"
 #include "ChuSniper/Panel.mqh"
