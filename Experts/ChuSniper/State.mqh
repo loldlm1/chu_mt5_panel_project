@@ -45,7 +45,7 @@ ulong lastStateSave=0;
 
 string activePanelScope="",lastSavedPanelRecord="";
 
-ulong lastQuickQuoteRefresh=0;
+ulong lastQuickQuoteRefresh=0,lastBEProjectionRefresh=0;
 
 #define CSM_QUICK_HEIGHT 50
 #define CSM_QUICK_EXTRA (CSM_QUICK_HEIGHT-25)

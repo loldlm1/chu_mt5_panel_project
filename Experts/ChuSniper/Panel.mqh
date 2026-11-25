@@ -28,6 +28,49 @@ void RefreshQuickQuotes()
    bool buyChanged=UpdatePanelCaption("quickBuy",QuickQuoteCaption(true,quote,available));
    if(sellChanged || buyChanged) ChartRedraw();
 }
+// Same read-only BE projection renderer for the regular panel and live dragging.
+void RenderBEProjection(PositionRow &rows[],const double floating)
+{
+   double at=ArraySize(rows)>0?ProfitAtPriceLevel(rows,breakEvenPrice):EMPTY_VALUE;
+   double bal=AccountInfoDouble(ACCOUNT_BALANCE);
+   string preview=at==EMPTY_VALUE?"BE proy.: estimacion no disponible":StringFormat("BE proy. %+.2f %s (%+.2f%%) | Retroceso %.2f",at,AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
+   int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS),ch=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0);
+   int bw=(int)MathMin(405,MathMax(1,cw));
+   int bx=(int)MathMin(MathMax(0,cw-bw),panelX+460*panelDrawScale+8),by=panelY;
+   int py=0,px=0;
+   if(ChartTimePriceToXY(0,0,iTime(_Symbol,_Period,0),breakEvenPrice,px,py)) by=MathMax(0,py-27);
+   if(cw<panelX+460*panelDrawScale+bw+8)
+   {
+      bx=(int)MathMax(0,MathMin(panelX,cw-bw));
+      by=panelY+(int)MathRound(PanelBaseHeight()*panelDrawScale)+4;
+      if(by+25>ch) by=MathMax(0,panelY-29);
+   }
+   bool visible=by+25<=ch && (bx>=panelX+460*panelDrawScale || bx+bw<=panelX ||
+                 by>=panelY+PanelBaseHeight()*panelDrawScale || by+25<=panelY);
+   color ink=at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?infoColor:sellColor;
+   if(visible)
+      DrawPanelObjectRaw("beinfo",OBJ_BUTTON,bx,by,bw,25,preview,PanelAccent(CSM_PANEL_NAVY),ink);
+   else
+      DrawPanelObjectRaw("beinfo",OBJ_BUTTON,panelX+(int)MathRound(8*panelDrawScale),
+         panelY+(int)MathRound((panelMinimized?123+CSM_QUICK_EXTRA:384+CSM_QUICK_EXTRA)*panelDrawScale),
+         (int)MathMax(1,MathRound(444*panelDrawScale)),
+         (int)MathMax(1,MathRound(25*panelDrawScale)),preview,PanelAccent(CSM_PANEL_NAVY),ink,
+         (int)MathMax(6,MathRound(10*panelDrawScale)));
+}
+// Only update the BE caption during the gesture, with the existing UI fee cache.
+void RefreshBEProjectionDuringDrag(const bool force=false)
+{
+   if(!breakEvenShown || !chartLineDragging || chartDragKey!="BE") return;
+   ulong now=GetTickCount64();
+   if(!force && now-lastBEProjectionRefresh<100) return;
+   lastBEProjectionRefresh=now;
+   PositionRow rows[];
+   int count=CollectManagedPositions(rows,true);
+   double floating=0;
+   for(int i=0;i<count;i++) floating+=rows[i].floatPL;
+   RenderBEProjection(rows,floating);
+   ChartRedraw();
+}
 void RenderPanel()
 {
    ClampPanelGeometry();
@@ -94,7 +137,6 @@ void RenderPanel()
    int count=CollectManagedPositions(rows,true);
    double floating=0;
    for(int i=0;i<count;i++) floating+=rows[i].floatPL;
-   double at=breakEvenShown?ProfitAtPriceLevel(rows,breakEvenPrice):0,bal=AccountInfoDouble(ACCOUNT_BALANCE);
    DrawPanelButton("scopeinfo",x,y,444,StringFormat("%s %s | %d posiciones | Flotante %+.2f",_Symbol,tradeSide>0?"Compras":"Ventas",count,floating));
    y+=29;
    DrawPanelButton("be",x,y,108,"Break-even",highlightColor);
@@ -110,29 +152,7 @@ void RenderPanel()
    if(breakEvenShown && count>0)
    {
       DrawPriceLevel("BE",breakEvenPrice,highlightColor,true);
-      string preview=at==EMPTY_VALUE?"Cierre estimado no disponible":StringFormat("Cierre aprox. %+.2f %s (%+.2f%%) | Retroceso %.2f",at,AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
-      int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS),ch=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0);
-      int bw=(int)MathMin(405,MathMax(1,cw));
-      int bx=(int)MathMin(MathMax(0,cw-bw),panelX+460*panelDrawScale+8),by=panelY;
-      int py=0,px=0;
-      if(ChartTimePriceToXY(0,0,iTime(_Symbol,_Period,0),breakEvenPrice,px,py)) by=MathMax(0,py-27);
-      if(cw<panelX+460*panelDrawScale+bw+8)
-      {
-         bx=(int)MathMax(0,MathMin(panelX,cw-bw));
-         by=panelY+(int)MathRound(PanelBaseHeight()*panelDrawScale)+4;
-         if(by+25>ch) by=MathMax(0,panelY-29);
-      }
-      bool visible=by+25<=ch && (bx>=panelX+460*panelDrawScale || bx+bw<=panelX ||
-                    by>=panelY+PanelBaseHeight()*panelDrawScale || by+25<=panelY);
-      color ink=at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?infoColor:sellColor;
-      if(visible)
-         DrawPanelObjectRaw("beinfo",OBJ_BUTTON,bx,by,bw,25,preview,PanelAccent(CSM_PANEL_NAVY),ink);
-      else
-         DrawPanelObjectRaw("beinfo",OBJ_BUTTON,panelX+(int)MathRound(8*panelDrawScale),
-            panelY+(int)MathRound((panelMinimized?123+CSM_QUICK_EXTRA:y+29)*panelDrawScale),
-            (int)MathMax(1,MathRound(444*panelDrawScale)),
-            (int)MathMax(1,MathRound(25*panelDrawScale)),preview,PanelAccent(CSM_PANEL_NAVY),ink,
-            (int)MathMax(6,MathRound(10*panelDrawScale)));
+      RenderBEProjection(rows,floating);
    }
    else {ForgetPriceLevel("BE");ForgetPanelObject("beinfo");if(count==0) breakEvenShown=false;}
    RenderBrokerPendingLines();

@@ -25,7 +25,7 @@ int OnInit()
    ArrayResize(panelObjects,0);ArrayResize(priceLevels,0);InvalidatePositionFeeCache();
    chartLeftPressed=false;suppressPanelClick=false;editingStopPoints=false;
    closeConfirmationDeadline=0;panelGesture=0;chartLineDragging=false;chartDragKey="";
-   panelDirty=true;lastPanelRefresh=0;lastQuickQuoteRefresh=0;
+   panelDirty=true;lastPanelRefresh=0;lastQuickQuoteRefresh=0;lastBEProjectionRefresh=0;
    LoadPanelState();
    InitializeChartInteraction();
    EventSetMillisecondTimer(250);
@@ -50,7 +50,13 @@ void OnTimer()
    if(panelGesture!=0 && now-panelGestureLastEvent>20000) FinishPanelGesture();
    // Keep server-side stop management active even during a chart gesture.
    UpdateTrailingStops();
-   if(chartLineDragging || panelGesture!=0) return; // No periodic repaint during a live gesture.
+   if(chartLineDragging)
+   {
+      // Quotes/positions may change even when the pointer is stationary.
+      RefreshBEProjectionDuringDrag();
+      return;
+   }
+   if(panelGesture!=0) return; // No full periodic repaint during a live gesture.
    if(panelDirty || now-lastPanelRefresh>=750) RenderPanel();
    if(panelStateReady && now-lastStateSave>=5000) SavePanelState();
 }
@@ -152,7 +158,11 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       else
       {
          PositionRow rows[];
-         if(CollectManagedPositions(rows)>0){breakEvenPrice=CalculateBreakEvenPrice(rows);breakEvenShown=breakEvenPrice>0;}
+         if(CollectManagedPositions(rows)>0)
+         {
+            breakEvenPrice=CalculateBreakEvenPrice(rows);breakEvenShown=breakEvenPrice>0;
+            if(breakEvenShown) csmPanelStatus="BE proyectado: pendiente de aplicar";
+         }
          else csmPanelStatus="Selecciona un lado con posiciones abiertas";
       }
    }
@@ -160,7 +170,10 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    {
       if(!TradePermissionsAllowed()) csmPanelStatus="Trading no permitido: requiere hedging y permisos";
       else if(k=="send") SubmitOrder();
-      else if(k=="apply") ApplyBreakEvenStops();
+      else if(k=="apply")
+      {
+         if(PanelHit(k,(int)lp,(int)dp)) ApplyBreakEvenStops();
+      }
       else if(k=="realize") CloseManagedPositions(false);
       else if(closeConfirmationDeadline>GetTickCount64()){closeConfirmationDeadline=0;CloseManagedPositions(true);}
       else closeConfirmationDeadline=GetTickCount64()+4000;
