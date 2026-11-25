@@ -31,9 +31,9 @@ void RefreshQuickQuotes()
 // Same read-only BE projection renderer for the regular panel and live dragging.
 void RenderBEProjection(PositionRow &rows[],const double floating)
 {
-   double at=ArraySize(rows)>0?ProfitAtPriceLevel(rows,breakEvenPrice):EMPTY_VALUE;
+   double at=ArraySize(rows)>0?ProfitAtPriceLevel(rows,breakEvenPrice,breakEvenSide):EMPTY_VALUE;
    double bal=AccountInfoDouble(ACCOUNT_BALANCE);
-   string preview=at==EMPTY_VALUE?"BE proy.: estimacion no disponible":StringFormat("BE proy. %+.2f %s (%+.2f%%) | Retroceso %.2f",at,AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
+   string preview=at==EMPTY_VALUE?"BE "+BESideCaption()+": estimacion no disponible":StringFormat("BE %s proy. %+.2f %s (%+.2f%%) | Retroceso %.2f",BESideCaption(),at,AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
    int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS),ch=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0);
    int bw=(int)MathMin(405,MathMax(1,cw));
    int bx=(int)MathMin(MathMax(0,cw-bw),panelX+460*panelDrawScale+8),by=panelY;
@@ -65,7 +65,7 @@ void RefreshBEProjectionDuringDrag(const bool force=false)
    if(!force && now-lastBEProjectionRefresh<100) return;
    lastBEProjectionRefresh=now;
    PositionRow rows[];
-   int count=CollectManagedPositions(rows,true);
+   int count=CollectManagedPositionsForSide(rows,breakEvenSide,true);
    double floating=0;
    for(int i=0;i<count;i++) floating+=rows[i].floatPL;
    RenderBEProjection(rows,floating);
@@ -139,7 +139,7 @@ void RenderPanel()
    for(int i=0;i<count;i++) floating+=rows[i].floatPL;
    DrawPanelButton("scopeinfo",x,y,444,StringFormat("%s %s | %d posiciones | Flotante %+.2f",_Symbol,tradeSide>0?"Compras":"Ventas",count,floating));
    y+=29;
-   DrawPanelButton("be",x,y,108,"Break-even",highlightColor);
+   DrawPanelButton("be",x,y,108,breakEvenShown?"BE "+BESideCaption():"Break-even",highlightColor);
    DrawPanelButton("apply",x+112,y,106,"Aplicar nivel",breakEvenShown?highlightColor:CSM_PANEL_NAVY);
    DrawPanelButton("units",x+222,y,108,percentTargetMode?"% flotante":"Dinero",highlightColor);
    // amount is drawn above.
@@ -149,15 +149,24 @@ void RenderPanel()
    y+=29;
    DrawPanelButton("status",x,y,panelMinimized?444:415,csmPanelStatus);
    DrawPanelButton("resize",428,y,24,"//");
-   if(breakEvenShown && count>0)
+   if(breakEvenShown)
    {
-      bool freshBE=PriceLevelSlot("BE")<0;
-      DrawPriceLevel("BE",breakEvenPrice,highlightColor,true);
-      if(freshBE) ObjectSetString(0,PanelObjectName("BE"),OBJPROP_TOOLTIP,
-                                  "BE proyectado: aplica con el boton Aplicar nivel");
-      RenderBEProjection(rows,floating);
+      // With an opposite prepared order, BE has its own pinned side.
+      PositionRow beRows[];
+      int beCount=CollectManagedPositionsForSide(beRows,breakEvenSide,true);
+      if(beCount>0)
+      {
+         double beFloating=0;
+         for(int i=0;i<beCount;i++) beFloating+=beRows[i].floatPL;
+         bool freshBE=PriceLevelSlot("BE")<0;
+         DrawPriceLevel("BE",breakEvenPrice,highlightColor,true);
+         if(freshBE) ObjectSetString(0,PanelObjectName("BE"),OBJPROP_TOOLTIP,
+                                     "BE "+BESideCaption()+" proyectado: aplica con Aplicar nivel");
+         RenderBEProjection(beRows,beFloating);
+      }
+      else breakEvenShown=false;
    }
-   else {ForgetPriceLevel("BE");ForgetPanelObject("beinfo");if(count==0) breakEvenShown=false;}
+   if(!breakEvenShown){ForgetPriceLevel("BE");ForgetPanelObject("beinfo");}
    RenderBrokerPendingLines();
    lastPanelRefresh=GetTickCount64();panelDirty=false;
    ChartRedraw();

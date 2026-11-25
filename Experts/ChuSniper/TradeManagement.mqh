@@ -4,8 +4,16 @@ bool SelectManagedTicket(const ulong ticket)
    return PositionSelectByTicket(ticket) && PositionGetString(POSITION_SYMBOL)==_Symbol &&
           (IncludeOtherPositions || PositionGetInteger(POSITION_MAGIC)==(long)Magic);
 }
+// A manual BE may adapt only after the executable quote has strictly crossed
+// the requested level. This guard is NOT part of automatic trailing.
+bool BEPriceCrossed(const int direction,const MqlTick &q,const double wanted)
+{
+   return ValidBrokerQuote(q) && MathIsValidNumber(wanted) && wanted>0 &&
+          (direction>0?q.bid>wanted:q.ask<wanted);
+}
+// Outcome 5: requested manual BE has not been crossed.
 int ApplyResolvedStop(const ulong ticket,const double wanted,const bool allowExactRetreat,
-                      const int expectedDirection)
+                      const int expectedDirection,const bool requireCrossedBE=false)
 {
    if(!TradePermissionsAllowed() || !SelectManagedTicket(ticket)) return -1;
    int dir=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY?1:-1;
@@ -13,6 +21,7 @@ int ApplyResolvedStop(const ulong ticket,const double wanted,const bool allowExa
    double oldSL=PositionGetDouble(POSITION_SL),oldTP=PositionGetDouble(POSITION_TP);
    BrokerRules b;MqlTick q;
    if(!ReadBrokerRules(b) || !SymbolInfoTick(_Symbol,q) || !ValidBrokerQuote(q)) return -1;
+   if(requireCrossedBE && !BEPriceCrossed(dir,q,wanted)) return 5;
    double level=0;
    int decision=ResolvePositionStop(dir,q,b,wanted,oldSL,oldTP,allowExactRetreat,level);
    if(decision!=1 && decision!=2) return decision;
@@ -34,21 +43,24 @@ void ApplyBreakEvenStops()
    if(!breakEvenShown || breakEvenPrice<=0){csmPanelStatus="Selecciona un nivel BE valido";return;}
    if(!TradePermissionsAllowed()){csmPanelStatus="BE: trading no permitido";return;}
    PositionRow rows[];
-   int n=CollectManagedPositions(rows),exact=0,adapted=0,same=0,unchanged=0,frozen=0,failed=0;
+   int n=CollectManagedPositionsForSide(rows,breakEvenSide),exact=0,adapted=0,same=0,unchanged=0,frozen=0,failed=0,notCrossed=0;
    if(n==0){csmPanelStatus="BE: no hay posiciones elegibles";return;}
    for(int i=0;i<n;i++)
    {
-      int outcome=ApplyResolvedStop(rows[i].id,breakEvenPrice,true,tradeSide);
+      int outcome=ApplyResolvedStop(rows[i].id,breakEvenPrice,true,breakEvenSide,true);
       if(outcome==1) exact++;
       else if(outcome==2) adapted++;
       else if(outcome==3) same++;
       else if(outcome==4) frozen++;
+      else if(outcome==5) notCrossed++;
       else if(outcome==0) unchanged++;
       else failed++;
    }
-   csmPanelStatus=StringFormat("BE %d exact / %d adapt / %d igual / %d sin cambio",exact,adapted,same,unchanged+frozen+failed);
-   PrintFormat("CSM BE: exactos=%d adaptados=%d iguales=%d sin mejora=%d freeze=%d rechazados/no verificados=%d",
-               exact,adapted,same,unchanged,frozen,failed);
+   if(notCrossed==n) csmPanelStatus=StringFormat("BE %s no superado: %d sin cambios",BESideCaption(),n);
+   else csmPanelStatus=StringFormat("BE %s: %d ex / %d ad / %d ig / %d no sup / %d fr / %d otros",
+                                  BESideCaption(),exact,adapted,same,notCrossed,frozen,unchanged+failed);
+   PrintFormat("CSM BE %s: exactos=%d adaptados=%d iguales=%d no superado=%d sin mejora=%d freeze=%d rechazados/no verificados=%d",
+               BESideCaption(),exact,adapted,same,notCrossed,unchanged,frozen,failed);
 }
 void CloseManagedPositions(bool all)
 {

@@ -22,14 +22,30 @@ struct PositionFeeCache
 };
 PositionFeeCache uiFeeCache[];
 void InvalidatePositionFeeCache(){ArrayResize(uiFeeCache,0);}
-int CollectManagedPositions(PositionRow &rows[],bool useUiCache=false)
+// Determine the BE activation side without opening an order or querying history.
+// The same symbol/Magic policy as the managed position collector applies.
+int ResolveBEActivationSide(const int selected)
+{
+   bool buys=false,sells=false;
+   for(int i=0;i<PositionsTotal();i++)
+   {
+      if(!PositionGetTicket(i) || PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if(!IncludeOtherPositions && PositionGetInteger(POSITION_MAGIC)!=(long)Magic) continue;
+      long type=PositionGetInteger(POSITION_TYPE);
+      if(type==POSITION_TYPE_BUY) buys=true;
+      else if(type==POSITION_TYPE_SELL) sells=true;
+      if(buys && sells) return selected;
+   }
+   return buys?1:sells?-1:0;
+}
+int CollectManagedPositionsForSide(PositionRow &rows[],const int direction,bool useUiCache=false)
 {
    ArrayResize(rows,0);
    for(int i=0;i<PositionsTotal();i++)
    {
       ulong id=PositionGetTicket(i);
       if(!id || PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
-      if(PositionGetInteger(POSITION_TYPE)!=(tradeSide>0?POSITION_TYPE_BUY:POSITION_TYPE_SELL)) continue;
+      if(PositionGetInteger(POSITION_TYPE)!=(direction>0?POSITION_TYPE_BUY:POSITION_TYPE_SELL)) continue;
       if(!IncludeOtherPositions && PositionGetInteger(POSITION_MAGIC)!=(long)Magic) continue;
       int n=ArraySize(rows);
       ArrayResize(rows,n+1);
@@ -43,7 +59,7 @@ int CollectManagedPositions(PositionRow &rows[],bool useUiCache=false)
       rows[n].floatPL=PositionGetDouble(POSITION_PROFIT)+rows[n].swap;
    }
    for(int i=1;i<ArraySize(rows);i++)
-      for(int j=i;j>0 && (groupMode?tradeSide*(rows[j].open-rows[j-1].open)>0:rows[j].id>rows[j-1].id);j--)
+      for(int j=i;j>0 && (groupMode?direction*(rows[j].open-rows[j-1].open)>0:rows[j].id>rows[j-1].id);j--)
       {
          PositionRow tmp=rows[j];
          rows[j]=rows[j-1];
@@ -88,24 +104,29 @@ int CollectManagedPositions(PositionRow &rows[],bool useUiCache=false)
    }
    return ArraySize(rows);
 }
-double ProfitAtPriceLevel(PositionRow &rows[],double level)
+int CollectManagedPositions(PositionRow &rows[],bool useUiCache=false)
+{
+   return CollectManagedPositionsForSide(rows,tradeSide,useUiCache);
+}
+string BESideCaption(){return breakEvenSide>0?"BUY":"SELL";}
+double ProfitAtPriceLevel(PositionRow &rows[],double level,const int direction)
 {
    double total=0;
    for(int i=0;i<ArraySize(rows);i++)
    {
       double value=0;
-      if(!EstimateOrderProfit(rows[i].open,level,rows[i].vol,value)) return EMPTY_VALUE;
+      if(!OrderCalcProfit(direction>0?ORDER_TYPE_BUY:ORDER_TYPE_SELL,_Symbol,rows[i].vol,rows[i].open,level,value)) return EMPTY_VALUE;
       total+=value+rows[i].swap+rows[i].cost;
    }
    return total;
 }
-double CalculateBreakEvenPrice(PositionRow &rows[])
+double CalculateBreakEvenPrice(PositionRow &rows[],const int direction)
 {
    double sum=0,vol=0;
    for(int i=0;i<ArraySize(rows);i++){sum+=rows[i].open*rows[i].vol;vol+=rows[i].vol;}
    if(vol<=0) return 0;
    double base=sum/vol, move=MathMax(_Point*100,SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE));
-   double a=ProfitAtPriceLevel(rows,base), b=ProfitAtPriceLevel(rows,base+move);
+   double a=ProfitAtPriceLevel(rows,base,direction), b=ProfitAtPriceLevel(rows,base+move,direction);
    if(a==EMPTY_VALUE || b==EMPTY_VALUE || MathAbs(a-b)<1e-10) return NormalizeTradePrice(base);
    return NormalizeTradePrice(base-a*move/(b-a));
 }

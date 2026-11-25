@@ -118,8 +118,12 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(k=="points"){editingStopPoints=true;return;}
    ObjectSetInteger(0,sp,OBJPROP_STATE,false);
    if(k!="close") closeConfirmationDeadline=0;
-   if(k=="buy") PrepareOrder(1);
-   if(k=="sell") PrepareOrder(-1);
+   if(k=="buy" || k=="sell")
+   {
+      int direction=k=="buy"?1:-1;
+      if(breakEvenShown && breakEvenSide!=direction) breakEvenShown=false;
+      PrepareOrder(direction);
+   }
    if(k=="scope"){groupMode=!groupMode;breakEvenShown=false;}
    if(k=="mode")
    {
@@ -157,13 +161,21 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       if(breakEvenShown) breakEvenShown=false;
       else
       {
+         // A sole held direction takes precedence. Never invert a prepared order.
+         int direction=ResolveBEActivationSide(tradeSide);
          PositionRow rows[];
-         if(CollectManagedPositions(rows)>0)
+         if(direction!=0 && CollectManagedPositionsForSide(rows,direction)>0)
          {
-            breakEvenPrice=CalculateBreakEvenPrice(rows);breakEvenShown=breakEvenPrice>0;
-            if(breakEvenShown) csmPanelStatus="BE proyectado: pendiente de aplicar";
+            double level=CalculateBreakEvenPrice(rows,direction);
+            if(MathIsValidNumber(level) && level>0 && level!=EMPTY_VALUE)
+            {
+               breakEvenSide=direction;breakEvenPrice=level;breakEvenShown=true;
+               if(!orderPrepared) tradeSide=direction;
+               csmPanelStatus="BE "+BESideCaption()+" proyectado: pendiente de aplicar";
+            }
+            else csmPanelStatus="BE: nivel no disponible";
          }
-         else csmPanelStatus="Selecciona un lado con posiciones abiertas";
+         else csmPanelStatus="BE: no hay posiciones elegibles";
       }
    }
    if(k=="send" || k=="apply" || k=="realize" || k=="close")

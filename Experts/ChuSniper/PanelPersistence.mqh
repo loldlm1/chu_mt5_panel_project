@@ -57,7 +57,7 @@ void CapturePanelInputs()
 }
 void ResetPanelOperationalState()
 {
-   tradeSide=1;riskMode=0;trailingMode=0;groupMode=true;pendingOrderMode=false;
+   tradeSide=1;breakEvenSide=1;riskMode=0;trailingMode=0;groupMode=true;pendingOrderMode=false;
    orderPrepared=false;fixedStopMode=false;riskRewardMode=true;percentTargetMode=false;breakEvenShown=false;
    csmPlannedEntry=0;plannedStopLoss=0;plannedTakeProfit=0;breakEvenPrice=0;
    stopDistancePoints=250;rewardRiskRatio=2;
@@ -84,7 +84,8 @@ void LoadPanelState()
    string record=FileReadString(h);FileClose(h);
    string a[];
    int n=StringSplit(record,'|',a);
-   if(n<24 || a[0]!="CSM140"){Print("CSM: invalid saved state");return;}
+   if(n<24 || (a[0]!="CSM140" && a[0]!="CSM160")){Print("CSM: invalid saved state");return;}
+   bool hasBESide=a[0]=="CSM160";
    int side=(int)StringToInteger(a[5]),risk=(int)StringToInteger(a[6]),trail=(int)StringToInteger(a[7]);
    double scale=StringToDouble(a[3]),points=StringToDouble(a[15]),ratio=StringToDouble(a[16]);
    double entry=StringToDouble(a[17]),sl=StringToDouble(a[18]),tp=StringToDouble(a[19]),be=StringToDouble(a[20]);
@@ -93,15 +94,21 @@ void LoadPanelState()
    bool valid=(side==1 || side==-1) && risk>=0 && risk<=2 && trail>=0 && trail<=1 &&
               scale>=0.65 && scale<=2.0 && points>0 && ratio>0 &&
               ValidStateNumber(entry) && ValidStateNumber(sl) && ValidStateNumber(tp) && ValidStateNumber(be) &&
-              MathIsValidNumber(points) && MathIsValidNumber(ratio) && count>=0 && count<=10000 && n==24+count*2 &&
+              MathIsValidNumber(points) && MathIsValidNumber(ratio) && count>=0 && count<=10000 && n==24+count*2+(hasBESide?1:0) &&
               ValidStateNumber(riskValue) && ValidStateNumber(amount);
    for(int i=8;i<=14;i++) if(a[i]!="0" && a[i]!="1") valid=false;
    if(a[4]!="0" && a[4]!="1") valid=false;
+   int beSide=side;
+   if(valid && hasBESide)
+   {
+      if(a[n-1]!="1" && a[n-1]!="-1") valid=false;
+      else beSide=(int)StringToInteger(a[n-1]);
+   }
    if(!valid){Print("CSM: rejected saved state");return;}
    panelX=(int)MathMax(0,MathMin(100000,StringToInteger(a[1])));
    panelY=(int)MathMax(0,MathMin(100000,StringToInteger(a[2])));
    panelScale=scale;
-   panelMinimized=a[4]=="1";tradeSide=side;riskMode=risk;trailingMode=trail;
+   panelMinimized=a[4]=="1";tradeSide=side;breakEvenSide=beSide;riskMode=risk;trailingMode=trail;
    groupMode=a[8]=="1";pendingOrderMode=a[9]=="1";orderPrepared=a[10]=="1" && entry>0 && sl>0 && tp>0;
    fixedStopMode=a[11]=="1";riskRewardMode=a[12]=="1";percentTargetMode=a[13]=="1";breakEvenShown=a[14]=="1" && be>0;
    stopDistancePoints=points;rewardRiskRatio=ratio;csmPlannedEntry=entry;plannedStopLoss=sl;plannedTakeProfit=tp;breakEvenPrice=be;
@@ -133,12 +140,12 @@ void SavePanelState()
       if(!OwnedTrailingTicket(trailingPositionTickets[i]) || favorablePrices[i]<=0 || !MathIsValidNumber(favorablePrices[i])) continue;
       pairs+="|"+StringFormat("%I64u",trailingPositionTickets[i])+"|"+StateNumber(favorablePrices[i]);count++;
    }
-   string record=StringFormat("CSM140|%d|%d|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
+   string record=StringFormat("CSM160|%d|%d|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d",
       panelX,panelY,StateNumber(panelScale),(int)panelMinimized,tradeSide,riskMode,trailingMode,
       (int)groupMode,(int)pendingOrderMode,(int)orderPrepared,(int)fixedStopMode,(int)riskRewardMode,(int)percentTargetMode,(int)breakEvenShown);
    record+="|"+StateNumber(stopDistancePoints)+"|"+StateNumber(rewardRiskRatio)+"|"+StateNumber(csmPlannedEntry)+
       "|"+StateNumber(plannedStopLoss)+"|"+StateNumber(plannedTakeProfit)+"|"+StateNumber(breakEvenPrice)+
-      "|"+StateNumber(risk)+"|"+StateNumber(amount)+"|"+IntegerToString(count)+pairs;
+      "|"+StateNumber(risk)+"|"+StateNumber(amount)+"|"+IntegerToString(count)+pairs+"|"+IntegerToString(breakEvenSide);
    if(record==lastSavedPanelRecord) return;
    string temp=panelStateFile+".tmp";
    int h=FileOpen(temp,FILE_WRITE|FILE_TXT|FILE_ANSI);

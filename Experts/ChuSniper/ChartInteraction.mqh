@@ -108,7 +108,7 @@ void FinishChartDrag()
    {
       // Releasing the projection is strictly visual. Only the Apply button
       // can invoke the existing per-ticket BE modification path.
-      csmPanelStatus="BE proyectado: pendiente de aplicar";
+      csmPanelStatus="BE "+BESideCaption()+" proyectado: pendiente de aplicar";
    }
    else if(StringFind(key,"Pending_")==0)
       AdjustBrokerPendingOrder(key,price,initial,chartDragStartSL,chartDragStartTP);

@@ -8,6 +8,8 @@ Story #30; tickets #31–#32.
 - Freely drag and release the BE projection without modifying broker stops; apply only through the existing Aplicar nivel button.
 - Refresh estimated net closing P/L, balance percentage and retracement during dragging, using the existing UI cache and a bounded refresh.
 - Keep existing broker-aware per-ticket BE application, independent trailing, pending-order behavior, saved preferences and Demo/Real hedging eligibility.
+- BE selects the sole eligible side automatically (mixed sides respect selection), pins its direction independently of prepared orders, and preserves old state on migration to CSM160.
+- Manual BE applies only after the executable quote strictly crosses the requested level, then retains broker-aware adaptation; otherwise preserves the existing stop. Automatic trailing unchanged.
 - Pending MetaEditor and focused Demo QA.
 
 ## [0.15.0] — 2026-11-24
