@@ -1,5 +1,5 @@
 #property strict
-#property version "0.150"
+#property version "0.160"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
 #include "ChuSniper/ChartStyle.mqh"
@@ -25,7 +25,7 @@ int OnInit()
    ArrayResize(panelObjects,0);ArrayResize(priceLevels,0);InvalidatePositionFeeCache();
    chartLeftPressed=false;suppressPanelClick=false;editingStopPoints=false;
    closeConfirmationDeadline=0;panelGesture=0;chartLineDragging=false;chartDragKey="";
-   panelDirty=true;lastPanelRefresh=0;lastQuickQuoteRefresh=0;
+   panelDirty=true;lastPanelRefresh=0;lastQuickQuoteRefresh=0;lastBEProjectionRefresh=0;
    LoadPanelState();
    InitializeChartInteraction();
    EventSetMillisecondTimer(250);
@@ -50,7 +50,13 @@ void OnTimer()
    if(panelGesture!=0 && now-panelGestureLastEvent>20000) FinishPanelGesture();
    // Keep server-side stop management active even during a chart gesture.
    UpdateTrailingStops();
-   if(chartLineDragging || panelGesture!=0) return; // No periodic repaint during a live gesture.
+   if(chartLineDragging)
+   {
+      // Quotes/positions may change even when the pointer is stationary.
+      RefreshBEProjectionDuringDrag();
+      return;
+   }
+   if(panelGesture!=0) return; // No full periodic repaint during a live gesture.
    if(panelDirty || now-lastPanelRefresh>=750) RenderPanel();
    if(panelStateReady && now-lastStateSave>=5000) SavePanelState();
 }
@@ -64,7 +70,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(id==CHARTEVENT_CHART_CHANGE){panelDirty=true;return;}
    if(StringFind(sp,panelObjectPrefix)!=0) return;
    string k=StringSubstr(sp,StringLen(panelObjectPrefix));
-   if(id==CHARTEVENT_OBJECT_DRAG) return; // Only mouse release commits EA drags.
+   if(id==CHARTEVENT_OBJECT_DRAG) return; // Custom gestures own previews and pending edits.
    if(id==CHARTEVENT_OBJECT_ENDEDIT)
    {
       if(k=="points")
@@ -112,8 +118,12 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(k=="points"){editingStopPoints=true;return;}
    ObjectSetInteger(0,sp,OBJPROP_STATE,false);
    if(k!="close") closeConfirmationDeadline=0;
-   if(k=="buy") PrepareOrder(1);
-   if(k=="sell") PrepareOrder(-1);
+   if(k=="buy" || k=="sell")
+   {
+      int direction=k=="buy"?1:-1;
+      if(breakEvenShown && breakEvenSide!=direction) breakEvenShown=false;
+      PrepareOrder(direction);
+   }
    if(k=="scope"){groupMode=!groupMode;breakEvenShown=false;}
    if(k=="mode")
    {
@@ -151,16 +161,31 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       if(breakEvenShown) breakEvenShown=false;
       else
       {
+         // A sole held direction takes precedence. Never invert a prepared order.
+         int direction=ResolveBEActivationSide(tradeSide);
          PositionRow rows[];
-         if(CollectManagedPositions(rows)>0){breakEvenPrice=CalculateBreakEvenPrice(rows);breakEvenShown=breakEvenPrice>0;}
-         else csmPanelStatus="Selecciona un lado con posiciones abiertas";
+         if(direction!=0 && CollectManagedPositionsForSide(rows,direction)>0)
+         {
+            double level=CalculateBreakEvenPrice(rows,direction);
+            if(MathIsValidNumber(level) && level>0 && level!=EMPTY_VALUE)
+            {
+               breakEvenSide=direction;breakEvenPrice=level;breakEvenShown=true;
+               if(!orderPrepared) tradeSide=direction;
+               csmPanelStatus="BE "+BESideCaption()+" proyectado: pendiente de aplicar";
+            }
+            else csmPanelStatus="BE: nivel no disponible";
+         }
+         else csmPanelStatus="BE: no hay posiciones elegibles";
       }
    }
    if(k=="send" || k=="apply" || k=="realize" || k=="close")
    {
       if(!TradePermissionsAllowed()) csmPanelStatus="Trading no permitido: requiere hedging y permisos";
       else if(k=="send") SubmitOrder();
-      else if(k=="apply") ApplyBreakEvenStops();
+      else if(k=="apply")
+      {
+         if(PanelHit(k,(int)lp,(int)dp)) ApplyBreakEvenStops();
+      }
       else if(k=="realize") CloseManagedPositions(false);
       else if(closeConfirmationDeadline>GetTickCount64()){closeConfirmationDeadline=0;CloseManagedPositions(true);}
       else closeConfirmationDeadline=GetTickCount64()+4000;

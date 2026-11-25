@@ -6,9 +6,9 @@ Expert Advisor for MetaTrader 5. The source-of-truth entry point is `Experts/Chu
 
 The initial `main` commit imports original v0.12 logic from the supplied UTF-16 LE source, as GitHub-readable UTF-8 with the original characters/behavior preserved.
 
-## Current version — v0.15.0
+## Current version — v0.16.0
 
-See [CHANGELOG.md](CHANGELOG.md) for the history of accepted updates and versioning conventions. The EA metadata is `#property version "0.150"`; the project version is v0.15.0. Track new work in [GitHub Issues](https://github.com/loldlm1/chu_mt5_panel_project/issues).
+See [CHANGELOG.md](CHANGELOG.md) for the history of accepted updates and versioning conventions. The EA metadata is `#property version "0.160"`; the project version is v0.16.0. Track new work in [GitHub Issues](https://github.com/loldlm1/chu_mt5_panel_project/issues).
 
 ## Build (MetaEditor)
 
@@ -33,3 +33,9 @@ The project reads `AGENTS.md`, `docs/agents/` and `GLOSSARY.md`. Matt Pocock's w
 ## Broker protection
 
 At preparation/edit and explicit confirmation, new entry levels are validated against current Bid/Ask, stops level and tick size. A changed manual projection requires confirmation again; quick market entries adapt automatically and send once, after OrderCheck. Money/percent sizing is recalculated using the effective stop. Fixed lots are preserved or rejected. Existing pending modifications and BE/trailing respect freeze constraints; automatic adaptations never weaken existing protection. No unprotected fallback or automatic order retry. Actual fills and losses can differ from estimates; accepted requests are not proof of a fill. All development/QA remains Demo/Tester only.
+
+## Interactive BE preview
+
+Break-even displays an estimated closing level for the selected side/scope. Drag the BE line freely and inspect the projected net P/L, balance percentage and retracement while moving it. Releasing or canceling a drag does not apply any BE-related broker modification. Only a separate deliberate click on `Aplicar nivel` applies the current projection through the existing per-ticket broker-aware BE logic. The estimate is not a realized result or a guarantee that every position can accept the level. Automatic trailing, when enabled, continues independently and may change actual stops during preview. Demo and Real hedging compatibility is a continuing requirement; development verification remains Demo/Tester only.
+
+On BE activation, a sole eligible direction is selected automatically; if both BUY and SELL are open, use the selected side. A prepared order keeps its own direction and prices; the BE side is labeled and persisted separately. Existing CSM140 state is read and upgraded to CSM160 on save. At explicit Apply, each position requires its fresh executable quote to have strictly crossed the requested BE (Bid > BE for BUY, Ask < BE for SELL). Otherwise no stop modification is sent. After crossing, exact or existing broker-aware improving adaptation is allowed; frozen/rejected/no-improvement tickets retain their protection. No deferred execution. Automatic trailing does not use this crossing requirement.

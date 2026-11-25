@@ -7,7 +7,7 @@ enum ENUM_CSM_PANEL_THEME { PANEL_ORIGINAL=0, PANEL_PANDORA=1 };
 input ENUM_CSM_PANEL_THEME PanelTheme=PANEL_ORIGINAL;
 CTrade trade;
 string panelObjectPrefix="CSM_",csmPanelStatus="";
-int tradeSide=1, riskMode=0, trailingMode=0;
+int tradeSide=1, breakEvenSide=1, riskMode=0, trailingMode=0;
 bool groupMode=true, pendingOrderMode=false, orderPrepared=false, fixedStopMode=false, riskRewardMode=true, percentTargetMode=false, breakEvenShown=false, tradeExecutionEnabled=false;
 double csmPlannedEntry=0,plannedStopLoss=0,plannedTakeProfit=0,stopDistancePoints=250,rewardRiskRatio=2,breakEvenPrice=0;
 ulong closeConfirmationDeadline=0;
@@ -45,7 +45,7 @@ ulong lastStateSave=0;
 
 string activePanelScope="",lastSavedPanelRecord="";
 
-ulong lastQuickQuoteRefresh=0;
+ulong lastQuickQuoteRefresh=0,lastBEProjectionRefresh=0;
 
 #define CSM_QUICK_HEIGHT 50
 #define CSM_QUICK_EXTRA (CSM_QUICK_HEIGHT-25)

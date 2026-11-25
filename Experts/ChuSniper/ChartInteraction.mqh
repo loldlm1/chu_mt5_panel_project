@@ -78,6 +78,7 @@ void PreviewDraggedPrice(const double price)
       if(chartDragStartTP>0) DrawPriceLevel("DragPendingTP",NormalizeTradePrice(chartDragStartTP+delta),infoColor,false);
    }
    SetPriceLevel(chartDragKey,price);
+   if(chartDragKey=="BE") RefreshBEProjectionDuringDrag();
    ChartRedraw();
 }
 void ClearDragPreview()
@@ -91,6 +92,7 @@ void CancelChartDrag()
 {
    if(!chartLineDragging) return;
    PreviewDraggedPrice(chartDragStartPrice);
+   if(chartDragKey=="BE") RefreshBEProjectionDuringDrag(true);
    fixedStopMode=chartDragOriginalFixedStop;riskRewardMode=chartDragOriginalRiskReward;
    ClearDragPreview();
 }
@@ -102,7 +104,12 @@ void FinishChartDrag()
    bool changed=MathAbs(price-initial)>_Point/2;
    ClearDragPreview();
    if(!changed){fixedStopMode=chartDragOriginalFixedStop;riskRewardMode=chartDragOriginalRiskReward;}
-   else if(key=="BE" && breakEvenShown) ApplyBreakEvenStops();
+   else if(key=="BE" && breakEvenShown)
+   {
+      // Releasing the projection is strictly visual. Only the Apply button
+      // can invoke the existing per-ticket BE modification path.
+      csmPanelStatus="BE "+BESideCaption()+" proyectado: pendiente de aplicar";
+   }
    else if(StringFind(key,"Pending_")==0)
       AdjustBrokerPendingOrder(key,price,initial,chartDragStartSL,chartDragStartTP);
    else if(key=="Entrada" || key=="Stop loss" || key=="Take profit")
@@ -197,5 +204,7 @@ void HandleChartMouseMove(const int x,const int y,const string state)
    chartDragPrice=chartDragStartPrice;chartDragMouseOffset=chartDragStartPrice-mouse;
    chartDragOriginalFixedStop=fixedStopMode;chartDragOriginalRiskReward=riskRewardMode;
    chartDragLastEvent=chartHoverAt;chartLineDragging=true;suppressPanelClick=true;
-   SetTradeLevelDragCaptured(true);SetChartScrollCaptured(true);ChartRedraw();
+   SetTradeLevelDragCaptured(true);SetChartScrollCaptured(true);
+   if(chartDragKey=="BE") RefreshBEProjectionDuringDrag(true);
+   ChartRedraw();
 }
