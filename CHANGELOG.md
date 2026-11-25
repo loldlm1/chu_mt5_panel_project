@@ -2,15 +2,19 @@
 
 All accepted updates are recorded here. Project versions use MAJOR.MINOR.PATCH, with one version per merged update. The MQL5 metadata encodes the minor and patch as three digits (e.g. v0.13.0 = 0.130). Intermediate QA commits are part of the same version.
 
-## [0.16.0] — pending acceptance
+## [0.16.0] — 2026-11-25
 
-Story #30; tickets #31–#32.
+Story #30, PR #33; tickets #31–#32.
 - Freely drag and release the BE projection without modifying broker stops; apply only through the existing Aplicar nivel button.
 - Refresh estimated net closing P/L, balance percentage and retracement during dragging, using the existing UI cache and a bounded refresh.
 - Keep existing broker-aware per-ticket BE application, independent trailing, pending-order behavior, saved preferences and Demo/Real hedging eligibility.
 - BE selects the sole eligible side automatically (mixed sides respect selection), pins its direction independently of prepared orders, and preserves old state on migration to CSM160.
 - Manual BE applies only after the executable quote strictly crosses the requested level, then retains broker-aware adaptation; otherwise preserves the existing stop. Automatic trailing unchanged.
-- Pending MetaEditor and focused Demo QA.
+### Validation
+- Owner accepted functional HEAD `86863c14e9f07afa22ec5577195661d09c2ed99e` on 2026-11-25, marked all PR acceptance checks after reporting successful behavior and explicitly authorized squash merge and story synchronization.
+- Initial revision: 23/23 focused static checks. QA amendment: 28/28 focused static checks and 24/24 deterministic scenarios using mechanically translated source functions in JavaScript with synthetic quotes/positions, not native MQL5 execution.
+- No independent native reviewer, MetaEditor invocation, raw compiler log or broker verification by this chat. Owner QA is reported acceptance; development verification remains Demo/Tester only.
+- Final changelog-only closeout does not alter executable code. CSM160 reads legacy CSM140 state; older versions cannot read the new state format.
 
 ## [0.15.0] — 2026-11-24
 
