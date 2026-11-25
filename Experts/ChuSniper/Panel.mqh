@@ -76,7 +76,7 @@ void RenderPanel()
    ClampPanelGeometry();
    int x=8,y=7;
    DrawPanelObject("bg",OBJ_RECTANGLE_LABEL,0,0,460,PanelBaseHeight(),"",PanelBackground(),PanelBorder());
-   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.15.0 | "+AccountModeCaption()+(SupportedTradingAccount()?"":" (solo vista)"));
+   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.16.0 | "+AccountModeCaption()+(SupportedTradingAccount()?"":" (solo vista)"));
    DrawPanelButton("minimize",x+412,y,32,panelMinimized?"+":"-");
    y+=29;
    MqlTick quickQuote;
@@ -151,7 +151,10 @@ void RenderPanel()
    DrawPanelButton("resize",428,y,24,"//");
    if(breakEvenShown && count>0)
    {
+      bool freshBE=PriceLevelSlot("BE")<0;
       DrawPriceLevel("BE",breakEvenPrice,highlightColor,true);
+      if(freshBE) ObjectSetString(0,PanelObjectName("BE"),OBJPROP_TOOLTIP,
+                                  "BE proyectado: aplica con el boton Aplicar nivel");
       RenderBEProjection(rows,floating);
    }
    else {ForgetPriceLevel("BE");ForgetPanelObject("beinfo");if(count==0) breakEvenShown=false;}

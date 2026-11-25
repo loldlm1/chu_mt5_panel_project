@@ -2,6 +2,14 @@
 
 All accepted updates are recorded here. Project versions use MAJOR.MINOR.PATCH, with one version per merged update. The MQL5 metadata encodes the minor and patch as three digits (e.g. v0.13.0 = 0.130). Intermediate QA commits are part of the same version.
 
+## [0.16.0] — pending acceptance
+
+Story #30; tickets #31–#32.
+- Freely drag and release the BE projection without modifying broker stops; apply only through the existing Aplicar nivel button.
+- Refresh estimated net closing P/L, balance percentage and retracement during dragging, using the existing UI cache and a bounded refresh.
+- Keep existing broker-aware per-ticket BE application, independent trailing, pending-order behavior, saved preferences and Demo/Real hedging eligibility.
+- Pending MetaEditor and focused Demo QA.
+
 ## [0.15.0] — 2026-11-24
 
 Story #22, PR #29; tickets #23–#28.

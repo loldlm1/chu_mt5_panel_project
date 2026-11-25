@@ -20,7 +20,7 @@ Single-context MQL5 project. Read `GLOSSARY.md` and applicable `docs/adr/` entri
 - Do not silently alter order execution, risk formulas, or account eligibility while performing a structural refactor.
 - Keep `Experts/Chu_Sniper_Manager.mq5` as the EA entry point. Local modules live under `Experts/ChuSniper/`.
 - A no-errors MetaEditor compilation and manual behavior checks are required acceptance evidence. Static comparisons are useful but are NOT compilation or runtime verification.
-- The EA supports operator-directed execution in Demo and Real hedging accounts as explicitly approved in story #22. Development, agent actions and verification must never place real trades or use live-account verification. Test only in MetaTrader demo/Strategy Tester.
+- The EA supports operator-directed execution in Demo and Real hedging accounts as explicitly approved in story #22. Every subsequent update must preserve compatibility with both account modes and existing permission gates unless the owner explicitly approves an eligibility change. Development, agent actions and verification must never place real trades or use live-account verification. Test only in MetaTrader demo/Strategy Tester.
 - Avoid unrelated infrastructure, repeated end-to-end tests, artificial coverage targets, generated reports, and unnecessary filesystem artifacts.
 - Create changes in a review branch and PR. Never merge into `main` without the owner's explicit authorization.
 - When MetaEditor is unavailable, report the exact blocker and request the user's MetaEditor compilation log; do not claim the code compiled.

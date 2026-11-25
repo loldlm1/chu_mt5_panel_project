@@ -1,5 +1,5 @@
 #property strict
-#property version "0.150"
+#property version "0.160"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
 #include "ChuSniper/ChartStyle.mqh"
@@ -70,7 +70,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(id==CHARTEVENT_CHART_CHANGE){panelDirty=true;return;}
    if(StringFind(sp,panelObjectPrefix)!=0) return;
    string k=StringSubstr(sp,StringLen(panelObjectPrefix));
-   if(id==CHARTEVENT_OBJECT_DRAG) return; // Only mouse release commits EA drags.
+   if(id==CHARTEVENT_OBJECT_DRAG) return; // Custom gestures own previews and pending edits.
    if(id==CHARTEVENT_OBJECT_ENDEDIT)
    {
       if(k=="points")
