@@ -13,7 +13,7 @@ bool EstimateOrderProfit(double open,double end,double lots,double &result)
 {
    return OrderCalcProfit(SelectedOrderDirection(),_Symbol,lots,open,end,result);
 }
-struct PositionRow {ulong id; double open,vol,stop,target,swap,cost,floatPL;};
+struct PositionRow {ulong id; double open,vol,stop,target,swap,cost,floatPL; bool costKnown;};
 // Only preview/accounting displays reuse fee history; trade actions read it fresh.
 struct PositionFeeCache
 {
@@ -55,7 +55,7 @@ int CollectManagedPositionsForSide(PositionRow &rows[],const int direction,bool 
       rows[n].stop=PositionGetDouble(POSITION_SL);
       rows[n].target=PositionGetDouble(POSITION_TP);
       rows[n].swap=PositionGetDouble(POSITION_SWAP);
-      rows[n].cost=0;
+      rows[n].cost=0;rows[n].costKnown=false;
       rows[n].floatPL=PositionGetDouble(POSITION_PROFIT)+rows[n].swap;
    }
    for(int i=1;i<ArraySize(rows);i++)
@@ -78,23 +78,30 @@ int CollectManagedPositionsForSide(PositionRow &rows[],const int direction,bool 
             MathAbs(uiFeeCache[cached].volume-rows[i].vol)<1e-8 &&
             GetTickCount64()-uiFeeCache[cached].refreshed<5000)
          {
-            rows[i].cost=uiFeeCache[cached].cost;
+            rows[i].cost=uiFeeCache[cached].cost;rows[i].costKnown=true;
             rows[i].floatPL+=rows[i].cost;
             continue;
          }
       }
       if(!HistorySelectByPosition(identifier)) continue;
-      double inVolume=0,fees=0;
+      double inVolume=0,fees=0;bool feeKnown=true;
       for(int j=0;j<HistoryDealsTotal();j++)
       {
          ulong deal=HistoryDealGetTicket(j);
-         if(HistoryDealGetInteger(deal,DEAL_ENTRY)!=DEAL_ENTRY_IN) continue;
-         inVolume+=HistoryDealGetDouble(deal,DEAL_VOLUME);
-         fees+=HistoryDealGetDouble(deal,DEAL_COMMISSION)+HistoryDealGetDouble(deal,DEAL_FEE);
+         if(!deal){feeKnown=false;continue;}
+         long entryKind=0;
+         if(!HistoryDealGetInteger(deal,DEAL_ENTRY,entryKind)){feeKnown=false;continue;}
+         if(entryKind!=DEAL_ENTRY_IN) continue;
+         double v=0,commission=0,fee=0;
+         if(!HistoryDealGetDouble(deal,DEAL_VOLUME,v) || !HistoryDealGetDouble(deal,DEAL_COMMISSION,commission) ||
+            !HistoryDealGetDouble(deal,DEAL_FEE,fee) || !MathIsValidNumber(v) || v<=0 ||
+            !MathIsValidNumber(commission) || !MathIsValidNumber(fee)){feeKnown=false;continue;}
+         inVolume+=v;fees+=commission+fee;
       }
+      rows[i].costKnown=feeKnown && inVolume>0 && inVolume+1e-8>=rows[i].vol;
       if(inVolume>0) rows[i].cost=fees*rows[i].vol/inVolume;
       rows[i].floatPL+=rows[i].cost;
-      if(useUiCache)
+      if(useUiCache && rows[i].costKnown)
       {
          if(cached<0){cached=ArraySize(uiFeeCache);ArrayResize(uiFeeCache,cached+1);}
          uiFeeCache[cached].id=rows[i].id;uiFeeCache[cached].identifier=identifier;
@@ -109,24 +116,34 @@ int CollectManagedPositions(PositionRow &rows[],bool useUiCache=false)
    return CollectManagedPositionsForSide(rows,tradeSide,useUiCache);
 }
 string BESideCaption(){return breakEvenSide>0?"BUY":"SELL";}
-double ProfitAtPriceLevel(PositionRow &rows[],double level,const int direction)
+string TPSideCaption(){return takeProfitSide>0?"BUY":"SELL";}
+double PositionProfitAtLevel(const PositionRow &row,const double level,const int direction,const bool requireKnownCost=false)
+{
+   double value=0;
+   if((requireKnownCost && !row.costKnown) ||
+      !OrderCalcProfit(direction>0?ORDER_TYPE_BUY:ORDER_TYPE_SELL,_Symbol,row.vol,row.open,level,value) ||
+      !MathIsValidNumber(value+row.swap+row.cost)) return EMPTY_VALUE;
+   return value+row.swap+row.cost;
+}
+double ProfitAtPriceLevel(PositionRow &rows[],double level,const int direction,const bool requireKnownCost=false)
 {
    double total=0;
    for(int i=0;i<ArraySize(rows);i++)
    {
-      double value=0;
-      if(!OrderCalcProfit(direction>0?ORDER_TYPE_BUY:ORDER_TYPE_SELL,_Symbol,rows[i].vol,rows[i].open,level,value)) return EMPTY_VALUE;
-      total+=value+rows[i].swap+rows[i].cost;
+      double value=PositionProfitAtLevel(rows[i],level,direction,requireKnownCost);
+      if(value==EMPTY_VALUE) return EMPTY_VALUE;
+      total+=value;
    }
-   return total;
+   return MathIsValidNumber(total)?total:EMPTY_VALUE;
 }
-double CalculateBreakEvenPrice(PositionRow &rows[],const int direction)
+double CalculateBreakEvenPrice(PositionRow &rows[],const int direction,const bool requireKnownCost=false)
 {
    double sum=0,vol=0;
    for(int i=0;i<ArraySize(rows);i++){sum+=rows[i].open*rows[i].vol;vol+=rows[i].vol;}
    if(vol<=0) return 0;
    double base=sum/vol, move=MathMax(_Point*100,SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE));
-   double a=ProfitAtPriceLevel(rows,base,direction), b=ProfitAtPriceLevel(rows,base+move,direction);
-   if(a==EMPTY_VALUE || b==EMPTY_VALUE || MathAbs(a-b)<1e-10) return NormalizeTradePrice(base);
+   double a=ProfitAtPriceLevel(rows,base,direction,requireKnownCost), b=ProfitAtPriceLevel(rows,base+move,direction,requireKnownCost);
+   if(a==EMPTY_VALUE || b==EMPTY_VALUE || MathAbs(a-b)<1e-10)
+      return requireKnownCost?0:NormalizeTradePrice(base);
    return NormalizeTradePrice(base-a*move/(b-a));
 }

@@ -1,16 +1,13 @@
-// The resize grip shares the status row; reserve another row only for BE info.
-int PanelBaseHeight(){return (panelMinimized?126:388)+CSM_QUICK_EXTRA+(breakEvenShown?29:0);}
-void ClampPanelGeometry()
+// Footer grows only for captions actually placed inside the panel.
+struct ProjectionRect {int x,y,w,h;};
+ProjectionRect beProjectionRect,tpProjectionRect;
+int projectionFallbackMask=0;
+int PanelHeightForFallback(const int mask)
 {
-   int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS);
-   int ch=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0);
-   panelScale=MathMax(0.65,MathMin(2.0,panelScale));
-   panelDrawScale=panelScale;
-   if(cw>0 && ch>0)
-      panelDrawScale=MathMax(0.01,MathMin(panelScale,MathMin((double)cw/460,(double)ch/PanelBaseHeight())));
-   panelX=(int)MathMax(0,MathMin(panelX,cw>0?MathMax(0,cw-460*panelDrawScale):panelX));
-   panelY=(int)MathMax(0,MathMin(panelY,ch>0?MathMax(0,ch-PanelBaseHeight()*panelDrawScale):panelY));
+   return (panelMinimized?126:417)+CSM_QUICK_EXTRA+
+          ((mask&1)!=0?29:0)+((mask&2)!=0?29:0);
 }
+int PanelBaseHeight(){return PanelHeightForFallback(projectionFallbackMask);}
 string QuickQuoteCaption(const bool buy,const MqlTick &quote,const bool available)
 {
    string side=buy?"BUY":"SELL";
@@ -28,55 +25,261 @@ void RefreshQuickQuotes()
    bool buyChanged=UpdatePanelCaption("quickBuy",QuickQuoteCaption(true,quote,available));
    if(sellChanged || buyChanged) ChartRedraw();
 }
-// Same read-only BE projection renderer for the regular panel and live dragging.
-void RenderBEProjection(PositionRow &rows[],const double floating)
+// Prefer the v0.16 chart-side caption immediately above the price line.
+// If space is constrained, the dedicated panel fallback keeps each drag handle accessible.
+bool ProjectionRectsOverlap(const ProjectionRect &a,const ProjectionRect &b)
 {
-   double at=ArraySize(rows)>0?ProfitAtPriceLevel(rows,breakEvenPrice,breakEvenSide):EMPTY_VALUE;
-   double bal=AccountInfoDouble(ACCOUNT_BALANCE);
-   string preview=at==EMPTY_VALUE?"BE "+BESideCaption()+": estimacion no disponible":StringFormat("BE %s proy. %+.2f %s (%+.2f%%) | Retroceso %.2f",BESideCaption(),at,AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
-   int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS),ch=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0);
-   int bw=(int)MathMin(405,MathMax(1,cw));
-   int bx=(int)MathMin(MathMax(0,cw-bw),panelX+460*panelDrawScale+8),by=panelY;
-   int py=0,px=0;
-   if(ChartTimePriceToXY(0,0,iTime(_Symbol,_Period,0),breakEvenPrice,px,py)) by=MathMax(0,py-27);
-   if(cw<panelX+460*panelDrawScale+bw+8)
-   {
-      bx=(int)MathMax(0,MathMin(panelX,cw-bw));
-      by=panelY+(int)MathRound(PanelBaseHeight()*panelDrawScale)+4;
-      if(by+25>ch) by=MathMax(0,panelY-29);
-   }
-   bool visible=by+25<=ch && (bx>=panelX+460*panelDrawScale || bx+bw<=panelX ||
-                 by>=panelY+PanelBaseHeight()*panelDrawScale || by+25<=panelY);
-   color ink=at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?infoColor:sellColor;
-   if(visible)
-      DrawPanelObjectRaw("beinfo",OBJ_BUTTON,bx,by,bw,25,preview,PanelAccent(CSM_PANEL_NAVY),ink);
-   else
-      DrawPanelObjectRaw("beinfo",OBJ_BUTTON,panelX+(int)MathRound(8*panelDrawScale),
-         panelY+(int)MathRound((panelMinimized?123+CSM_QUICK_EXTRA:384+CSM_QUICK_EXTRA)*panelDrawScale),
-         (int)MathMax(1,MathRound(444*panelDrawScale)),
-         (int)MathMax(1,MathRound(25*panelDrawScale)),preview,PanelAccent(CSM_PANEL_NAVY),ink,
-         (int)MathMax(6,MathRound(10*panelDrawScale)));
+   return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y;
 }
-// Only update the BE caption during the gesture, with the existing UI fee cache.
-void RefreshBEProjectionDuringDrag(const bool force=false)
+void ProjectionFallback(const int row,const ProjectionRect &panel,const double scale,ProjectionRect &r)
 {
-   if(!breakEvenShown || !chartLineDragging || chartDragKey!="BE") return;
-   ulong now=GetTickCount64();
-   if(!force && now-lastBEProjectionRefresh<100) return;
-   lastBEProjectionRefresh=now;
+   int y=(panelMinimized?123:413)+CSM_QUICK_EXTRA+row*29;
+   r.x=panel.x+(int)MathRound(8*scale);
+   r.y=panel.y+(int)MathRound(y*scale);
+   r.w=(int)MathMax(1,MathRound(444*scale));
+   r.h=(int)MathMax(1,MathRound(25*scale));
+}
+bool PlaceChartProjection(const double level,const int cw,const int ch,const ProjectionRect &panel,
+                          const ProjectionRect &other,const bool avoidOther,ProjectionRect &r)
+{
+   int px=0,py=0;
+   if(cw<=0 || ch<25 || !ChartTimePriceToXY(0,0,iTime(_Symbol,_Period,0),level,px,py) ||
+      py<0 || py>=ch) return false;
+   r.w=(int)MathMin(405,cw);r.h=25;
+   int right=panel.x+panel.w+8,left=panel.x-r.w-8;
+   int xs[3];xs[0]=right;xs[1]=left;xs[2]=(int)MathMax(0,MathMin(panel.x,cw-r.w));
+   // Search above first, then a nearby lower slot; only accept a fully visible
+   // rectangle that touches neither the panel nor the other caption.
+   for(int step=0;step<5;step++)
+   {
+      int ys[2];ys[0]=py-27-step*29;ys[1]=py+4+step*29;
+      for(int j=0;j<2;j++)
+         for(int k=0;k<3;k++)
+         {
+            r.x=xs[k];r.y=ys[j];
+            if(r.x<0 || r.y<0 || r.x+r.w>cw || r.y+r.h>ch) continue;
+            if(ProjectionRectsOverlap(r,panel) || (avoidOther && ProjectionRectsOverlap(r,other))) continue;
+            return true;
+         }
+   }
+   return false;
+}
+// Try the smallest footer first. Each candidate has its final panel geometry,
+// so external captions never overlap a subsequently expanded background.
+// A TP-only fallback occupies row zero even when BE floats outside.
+void ClampPanelGeometry()
+{
+   int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS),ch=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0);
+   panelScale=MathMax(0.65,MathMin(2.0,panelScale));
+   int active=(breakEvenShown?1:0)|(takeProfitShown?2:0);
+   for(int mask=0;mask<=3;mask++)
+   {
+      if((mask&active)!=mask) continue;
+      int height=PanelHeightForFallback(mask);
+      double scale=panelScale;
+      if(cw>0 && ch>0)
+         scale=MathMax(0.01,MathMin(scale,MathMin((double)cw/460,(double)ch/height)));
+      ProjectionRect panel,be,tp;
+      ZeroMemory(be);ZeroMemory(tp);
+      panel.w=(int)MathRound(460*scale);panel.h=(int)MathRound(height*scale);
+      panel.x=(int)MathMax(0,MathMin(panelX,cw>0?MathMax(0,cw-panel.w):panelX));
+      panel.y=(int)MathMax(0,MathMin(panelY,ch>0?MathMax(0,ch-panel.h):panelY));
+      bool beInside=(mask&1)!=0,tpInside=(mask&2)!=0;
+      if(beInside) ProjectionFallback(0,panel,scale,be);
+      if(tpInside) ProjectionFallback(beInside?1:0,panel,scale,tp);
+      if(breakEvenShown && !beInside &&
+         !PlaceChartProjection(breakEvenPrice,cw,ch,panel,tp,tpInside,be)) continue;
+      if(takeProfitShown && !tpInside &&
+         !PlaceChartProjection(takeProfitPrice,cw,ch,panel,be,breakEvenShown,tp)) continue;
+      projectionFallbackMask=mask;
+      panelDrawScale=scale;panelX=panel.x;panelY=panel.y;
+      beProjectionRect=be;tpProjectionRect=tp;
+      return;
+   }
+}
+// Clicking and dragging a caption selects its own projection, even at equal prices.
+ManagementPreview bePreview,tpPreview;
+string ManagementApplyCaption(const ManagementPreview &v,const bool isTP)
+{
+   string tag=isTP?"TP":"BE";
+   if(!v.active) return "Aplicar "+tag;
+   if(v.total>0 && v.exact==v.total) return tag+" aplicado";
+   if(v.total>0 && v.exact+v.adapted==v.total) return tag+" adaptado";
+   if(v.canApply)
+   {
+      int covered=v.exact+v.adapted;
+      return covered>0?StringFormat("Aplicar %d/%d",covered,v.total):"Aplicar "+tag;
+   }
+   if(!v.known || v.total==0) return tag+" no disp.";
+   if(isTP && (v.requested<=0 || (v.subset!=EMPTY_VALUE && v.subset<=0))) return tag+" no rentable";
+   if(v.exact+v.adapted>0) return tag+" parcial";
+   return tag+" bloqueado";
+}
+color ManagementApplyColor(const ManagementPreview &v,const bool isTP)
+{
+   if(v.active && v.total>0 && v.exact+v.adapted==v.total) return C'39,86,66';
+   if(v.canApply) return isTP?infoColor:highlightColor;
+   return CSM_PANEL_NAVY;
+}
+string ManagementPreviewDetail(const ManagementPreview &v)
+{
+   string detail=StringFormat("Exactos %d | Adaptados %d | Validas %d/%d | Cambios %d | Freeze %d | Otros %d | Desconocidos %d",
+                       v.exact,v.adapted,v.valid,v.total,v.changes,v.frozen,v.invalid,v.unknown);
+   if(!v.active) return "Proyeccion desactivada";
+   if(!v.permitted) detail+=" | Trading no permitido";
+   else if(!v.known) detail+=" | Datos no disponibles";
+   else if(v.requested!=EMPTY_VALUE && v.subset!=EMPTY_VALUE && (v.requested<0 || v.subset<=0)) detail+=" | Revisar rentabilidad";
+   return detail;
+}
+void DrawManagementApply(const bool isTP,const int x,const int y,const ManagementPreview &v)
+{
+   string key=isTP?"applyTP":"apply";
+   DrawPanelButton(key,x,y,106,ManagementApplyCaption(v,isTP),ManagementApplyColor(v,isTP));
+   ObjectSetString(0,PanelObjectName(key),OBJPROP_TOOLTIP,ManagementPreviewDetail(v));
+   ObjectSetInteger(0,PanelObjectName(key),OBJPROP_STATE,false);
+}
+void ReadManagementPreview(PositionRow &rows[],const bool isTP,ManagementPreview &v)
+{
+   BrokerRules b;MqlTick q={};
+   bool rulesKnown=ReadBrokerRules(b);
+   SymbolInfoTick(_Symbol,q);
+   BuildManagementPreview(rows,isTP?takeProfitShown:breakEvenShown,isTP,
+                          isTP?takeProfitSide:breakEvenSide,isTP?takeProfitPrice:breakEvenPrice,
+                          q,b,rulesKnown,TradePermissionsAllowed(),v);
+}
+// Informational fields occupy the same right-hand columns as units/amount.
+// "Validas" is the executable subset; "cubiertas" is actual exact/adapted
+// coverage, including exact-but-frozen tickets that cannot fund a new plan.
+void DrawTPMetrics(const int x,const int y,const ManagementPreview &v)
+{
+   int covered=v.exact+v.adapted;
+   string coverage="--",profit="--";
+   if(v.active && v.total>0)
+   {
+      if(covered>0) coverage=StringFormat("%d/%d cubiertas",covered,v.total);
+      else if(v.known) coverage=StringFormat("%d/%d validas",v.valid,v.total);
+      else coverage="No disponible";
+      if(v.subset!=EMPTY_VALUE && v.known)
+         profit=StringFormat("%+.2f %s",v.subset,AccountInfoString(ACCOUNT_CURRENCY));
+   }
+   color coverageInk=covered>0 && covered==v.total?buyColor:(v.active && v.known && v.valid<v.total?highlightColor:textColor);
+   color profitInk=v.known && v.subset!=EMPTY_VALUE?(v.subset>0?buyColor:v.subset<0?sellColor:textColor):textColor;
+   // Raw foreground retains meaningful positive/negative colors in either theme.
+   bool visible=!panelMinimized;
+   int font=(int)MathMax(6,MathMin(22,MathRound(10*panelDrawScale)));
+   int top=panelY+(int)MathRound(y*panelDrawScale),h=(int)MathMax(1,MathRound(25*panelDrawScale));
+   DrawPanelObjectRaw("tpcoverage",OBJ_BUTTON,panelX+(int)MathRound((x+222)*panelDrawScale),top,
+      (int)MathMax(1,MathRound(108*panelDrawScale)),h,coverage,PanelAccent(CSM_PANEL_NAVY),coverageInk,font,visible);
+   DrawPanelObjectRaw("tpnet",OBJ_BUTTON,panelX+(int)MathRound((x+334)*panelDrawScale),top,
+      (int)MathMax(1,MathRound(110*panelDrawScale)),h,profit,PanelAccent(CSM_PANEL_NAVY),profitInk,font,visible);
+   string detail=ManagementPreviewDetail(v);
+   ObjectSetString(0,PanelObjectName("tpcoverage"),OBJPROP_TOOLTIP,detail);
+   ObjectSetString(0,PanelObjectName("tpnet"),OBJPROP_TOOLTIP,
+      "P/L neto estimado del subconjunto valido a niveles efectivos (no garantizado) | "+detail);
+   ObjectSetInteger(0,PanelObjectName("tpcoverage"),OBJPROP_STATE,false);
+   ObjectSetInteger(0,PanelObjectName("tpnet"),OBJPROP_STATE,false);
+}
+void RefreshManagementApply(const bool isTP,PositionRow &rows[])
+{
+   // Existing expanded row coordinates; hidden by DrawPanelObject in compact mode.
+   int y=(isTP?326:297)+CSM_QUICK_EXTRA;
+   if(isTP)
+   {
+      ReadManagementPreview(rows,true,tpPreview);
+      DrawManagementApply(true,120,y,tpPreview);
+      DrawTPMetrics(8,y,tpPreview);
+   }
+   else {ReadManagementPreview(rows,false,bePreview);DrawManagementApply(false,120,y,bePreview);}
+}
+bool ManagementApplyEnabled(const bool isTP){return isTP?tpPreview.canApply:bePreview.canApply;}
+void RenderManagementProjection(PositionRow &rows[],const bool isTP,const double floating)
+{
+   int direction=isTP?takeProfitSide:breakEvenSide;
+   double level=isTP?takeProfitPrice:breakEvenPrice;
+   string tag=isTP?"TP":"BE",side=direction>0?"BUY":"SELL";
+   double at=ArraySize(rows)>0?ProfitAtPriceLevel(rows,level,direction,isTP):EMPTY_VALUE;
+   double bal=AccountInfoDouble(ACCOUNT_BALANCE);
+   string preview=at==EMPTY_VALUE?tag+" "+side+": estimacion no disponible":
+      StringFormat("%s %s proy. %+.2f %s (%+.2f%%) | Retroceso %.2f",tag,side,at,
+                   AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
+   ProjectionRect r;
+   if(isTP) r=tpProjectionRect;else r=beProjectionRect;
+   color ink=at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?(isTP?infoColor:highlightColor):sellColor;
+   string key=isTP?"tpinfo":"beinfo";
+   DrawPanelObjectRaw(key,OBJ_BUTTON,r.x,r.y,r.w,r.h,preview,PanelAccent(CSM_PANEL_NAVY),ink,
+      (int)MathMax(6,MathMin(10,MathRound(r.h*0.4))));
+   ObjectSetInteger(0,PanelObjectName(key),OBJPROP_STATE,false);
+}
+void RefreshManagementProjectionDuringDrag(const bool force=false)
+{
+   if(!chartLineDragging) return;
+   bool isTP=chartDragKey=="ManagedTP";
+   if(isTP?!takeProfitShown:(chartDragKey!="BE" || !breakEvenShown)) return;
+   ulong now=GetTickCount64(),last=isTP?lastTPProjectionRefresh:lastBEProjectionRefresh;
+   if(!force && now-last<100) return;
+   if(isTP) lastTPProjectionRefresh=now;else lastBEProjectionRefresh=now;
+   // Keep the drag refresh bounded. A rare geometry change that moves or
+   // rescales the panel requires rebuilding its existing controls once.
+   int oldMask=projectionFallbackMask,oldX=panelX,oldY=panelY;
+   double oldScale=panelDrawScale;
+   ClampPanelGeometry();
+   if(oldX!=panelX || oldY!=panelY || MathAbs(oldScale-panelDrawScale)>1e-10)
+   {
+      RenderPanel();
+      return;
+   }
+   if(oldMask!=projectionFallbackMask)
+      DrawPanelObject("bg",OBJ_RECTANGLE_LABEL,0,0,460,PanelBaseHeight(),"",PanelBackground(),PanelBorder());
    PositionRow rows[];
-   int count=CollectManagedPositionsForSide(rows,breakEvenSide,true);
+   int count=CollectManagedPositionsForSide(rows,isTP?takeProfitSide:breakEvenSide,true);
    double floating=0;
    for(int i=0;i<count;i++) floating+=rows[i].floatPL;
-   RenderBEProjection(rows,floating);
+   RenderManagementProjection(rows,isTP,floating);
+   RefreshManagementApply(isTP,rows);
+   if(breakEvenShown && takeProfitShown)
+   {
+      if(breakEvenSide==takeProfitSide)
+      {
+         RenderManagementProjection(rows,!isTP,floating);
+         RefreshManagementApply(!isTP,rows);
+      }
+      else
+      {
+         PositionRow otherRows[];
+         int otherCount=CollectManagedPositionsForSide(otherRows,isTP?breakEvenSide:takeProfitSide,true);
+         double otherFloating=0;
+         for(int i=0;i<otherCount;i++) otherFloating+=otherRows[i].floatPL;
+         RenderManagementProjection(otherRows,!isTP,otherFloating);
+         RefreshManagementApply(!isTP,otherRows);
+      }
+   }
    ChartRedraw();
 }
 void RenderPanel()
 {
+   PositionRow rows[];
+   int count=CollectManagedPositions(rows,true);
+   double floating=0;
+   for(int i=0;i<count;i++) floating+=rows[i].floatPL;
+   PositionRow beRows[],tpRows[];
+   int beCount=0,tpCount=0;
+   if(breakEvenShown)
+   {
+      if(breakEvenSide==tradeSide){ArrayCopy(beRows,rows);beCount=count;}
+      else beCount=CollectManagedPositionsForSide(beRows,breakEvenSide,true);
+      if(beCount==0) breakEvenShown=false;
+   }
+   if(takeProfitShown)
+   {
+      if(breakEvenShown && takeProfitSide==breakEvenSide){ArrayCopy(tpRows,beRows);tpCount=beCount;}
+      else if(takeProfitSide==tradeSide){ArrayCopy(tpRows,rows);tpCount=count;}
+      else tpCount=CollectManagedPositionsForSide(tpRows,takeProfitSide,true);
+      if(tpCount==0) takeProfitShown=false;
+   }
    ClampPanelGeometry();
    int x=8,y=7;
    DrawPanelObject("bg",OBJ_RECTANGLE_LABEL,0,0,460,PanelBaseHeight(),"",PanelBackground(),PanelBorder());
-   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.16.0 | "+AccountModeCaption()+(SupportedTradingAccount()?"":" (solo vista)"));
+   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.17.0 | "+AccountModeCaption()+(SupportedTradingAccount()?"":" (solo vista)"));
    DrawPanelButton("minimize",x+412,y,32,panelMinimized?"+":"-");
    y+=29;
    MqlTick quickQuote;
@@ -90,10 +293,17 @@ void RenderPanel()
    DrawPanelInput("ratio",x+347,152+CSM_QUICK_EXTRA,97,savedRatioText);
    DrawPanelInput("amount",x+334,297+CSM_QUICK_EXTRA,110,savedAmountText);
    string riskCaption=riskMode==0?"% cuenta":riskMode==1?AccountInfoString(ACCOUNT_CURRENCY):"lotes";
-   DrawPanelButton("quickInfo",x,y,444,StringFormat("Rapido: %s %s | SL %s pts | R:B %s",PanelNumberText(PanelInputNumber("riskval")),riskCaption,PanelNumberText(stopDistancePoints),PanelNumberText(rewardRiskRatio)));
+   string quickInfo=stopDistancePoints==0?
+      StringFormat("SIN SL | riesgo no limitado | lote %s %s",riskMode==2?"fijo":"min.",
+                   PanelNumberText(riskMode==2?PanelInputNumber("riskval"):SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN))):
+      StringFormat("Rapido: %s %s | SL %s pts | R:B %s",PanelNumberText(PanelInputNumber("riskval")),riskCaption,PanelNumberText(stopDistancePoints),PanelNumberText(rewardRiskRatio));
+   DrawPanelButton("quickInfo",x,y,444,quickInfo,stopDistancePoints==0?highlightColor:CSM_PANEL_NAVY);
    y+=29;
-   DrawPanelButton("buy",x,y,105,"Comprar",tradeSide>0?buyColor:CSM_PANEL_NAVY);
-   DrawPanelButton("sell",x+110,y,105,"Vender",tradeSide<0?sellColor:CSM_PANEL_NAVY);
+   // Direction is retained when the draft is canceled. Active drafts use side ink.
+   DrawPanelButton("buy",x,y,105,tradeSide>0?(orderPrepared?"X Comprar":"Comprar *"):"Comprar",
+                   tradeSide>0?(orderPrepared?buyColor:highlightColor):CSM_PANEL_NAVY);
+   DrawPanelButton("sell",x+110,y,105,tradeSide<0?(orderPrepared?"X Vender":"Vender *"):"Vender",
+                   tradeSide<0?(orderPrepared?sellColor:highlightColor):CSM_PANEL_NAVY);
    DrawPanelButton("scope",x+220,y,110,groupMode?"Grupo":"Individual",highlightColor);
    DrawPanelButton("mode",x+335,y,109,pendingOrderMode?"Pendiente":"Mercado",highlightColor);
    y+=29;
@@ -121,28 +331,36 @@ void RenderPanel()
    {
       if(pendingOrderMode) DrawPriceLevel("Entrada",csmPlannedEntry,buyColor,true);
       else ForgetPriceLevel("Entrada");
-      DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);
-      DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
+      if(plannedStopLoss>0) DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);
+      else ForgetPriceLevel("Stop loss");
+      if(plannedTakeProfit>0) DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
+      else ForgetPriceLevel("Take profit");
       // The input remains the requested distance; the preview shows the effective SL.
       // Rendering does not change the operator's settings.
    }
-   DrawPanelButton("preview",x,y,444,valid?StringFormat("Lote %s | SL %s pts | Riesgo %.2f %s",PanelNumberText(lot),PanelNumberText(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point),loss,AccountInfoString(ACCOUNT_CURRENCY)):(orderPrepared?"Niveles/riesgo invalidos; revisa o confirma ajuste":"Prepara la orden y ajusta los niveles"));
+   string draftCaption=valid?(stopDistancePoints==0?
+      StringFormat("SIN SL | lote %s | riesgo no limitado",PanelNumberText(lot)):
+      StringFormat("Lote %s | SL %s pts | Riesgo %.2f %s",PanelNumberText(lot),PanelNumberText(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point),loss,AccountInfoString(ACCOUNT_CURRENCY))):
+      (orderPrepared?(stopDistancePoints==0?"SIN SL | lote/niveles invalidos":"Niveles/riesgo invalidos; revisa o confirma ajuste"):"Prepara la orden y ajusta los niveles");
+   DrawPanelButton("preview",x,y,444,draftCaption,orderPrepared && stopDistancePoints==0?highlightColor:CSM_PANEL_NAVY);
    y+=29;
    DrawPanelButton("send",x,y,444,orderPrepared?"Confirmar "+OrderTypeCaption(type):"Confirmar orden",valid?buyColor:CSM_PANEL_NAVY);
    y+=29;
-   string trailModes[]={"Apagado","Simple"};
-   DrawPanelButton("trail",x,y,444,"Trailing: "+trailModes[trailingMode],trailingMode?highlightColor:CSM_PANEL_NAVY);
+   string trailCaption=trailingMode?StringFormat("Trailing 1R | sin SL %d | desconocido %d",trailingNoSL,trailingUnknown):"Trailing: Apagado";
+   DrawPanelButton("trail",x,y,444,trailCaption,trailingMode?highlightColor:CSM_PANEL_NAVY);
    y+=29;
-   PositionRow rows[];
-   int count=CollectManagedPositions(rows,true);
-   double floating=0;
-   for(int i=0;i<count;i++) floating+=rows[i].floatPL;
    DrawPanelButton("scopeinfo",x,y,444,StringFormat("%s %s | %d posiciones | Flotante %+.2f",_Symbol,tradeSide>0?"Compras":"Ventas",count,floating));
    y+=29;
-   DrawPanelButton("be",x,y,108,breakEvenShown?"BE "+BESideCaption():"Break-even",highlightColor);
-   DrawPanelButton("apply",x+112,y,106,"Aplicar nivel",breakEvenShown?highlightColor:CSM_PANEL_NAVY);
+   ReadManagementPreview(beRows,false,bePreview);
+   ReadManagementPreview(tpRows,true,tpPreview);
+   DrawPanelButton("be",x,y,108,breakEvenShown?"X BE "+BESideCaption():"Break-even",breakEvenShown?highlightColor:CSM_PANEL_NAVY);
+   DrawManagementApply(false,x+112,y,bePreview);
    DrawPanelButton("units",x+222,y,108,percentTargetMode?"% flotante":"Dinero",highlightColor);
    // amount is drawn above.
+   y+=29;
+   DrawPanelButton("tp",x,y,108,takeProfitShown?"X TP "+TPSideCaption():"Take profit",takeProfitShown?infoColor:CSM_PANEL_NAVY);
+   DrawManagementApply(true,x+112,y,tpPreview);
+   DrawTPMetrics(x,y,tpPreview);
    y+=29;
    DrawPanelButton("realize",x,y,218,"Realizar ganancia",infoColor);
    DrawPanelButton("close",x+222,y,222,closeConfirmationDeadline>GetTickCount64()?"Confirmar cerrar todo":"Cerrar todo",sellColor);
@@ -151,22 +369,29 @@ void RenderPanel()
    DrawPanelButton("resize",428,y,24,"//");
    if(breakEvenShown)
    {
-      // With an opposite prepared order, BE has its own pinned side.
-      PositionRow beRows[];
-      int beCount=CollectManagedPositionsForSide(beRows,breakEvenSide,true);
-      if(beCount>0)
-      {
-         double beFloating=0;
-         for(int i=0;i<beCount;i++) beFloating+=beRows[i].floatPL;
-         bool freshBE=PriceLevelSlot("BE")<0;
-         DrawPriceLevel("BE",breakEvenPrice,highlightColor,true);
-         if(freshBE) ObjectSetString(0,PanelObjectName("BE"),OBJPROP_TOOLTIP,
-                                     "BE "+BESideCaption()+" proyectado: aplica con Aplicar nivel");
-         RenderBEProjection(beRows,beFloating);
-      }
-      else breakEvenShown=false;
+      double beFloating=0;
+      for(int i=0;i<beCount;i++) beFloating+=beRows[i].floatPL;
+      bool fresh=PriceLevelSlot("BE")<0;
+      DrawPriceLevel("BE",breakEvenPrice,highlightColor,true);
+      if(fresh) ObjectSetString(0,PanelObjectName("BE"),OBJPROP_TOOLTIP,"BE "+BESideCaption()+" proyectado; arrastra linea o resumen");
+      RenderManagementProjection(beRows,false,beFloating);
    }
-   if(!breakEvenShown){ForgetPriceLevel("BE");ForgetPanelObject("beinfo");}
+   else {ForgetPriceLevel("BE");ForgetPanelObject("beinfo");}
+   if(takeProfitShown)
+   {
+      double tpFloating=0;
+      for(int i=0;i<tpCount;i++) tpFloating+=tpRows[i].floatPL;
+      bool fresh=PriceLevelSlot("ManagedTP")<0;
+      DrawPriceLevel("ManagedTP",takeProfitPrice,infoColor,true);
+      if(fresh)
+      {
+         ObjectSetString(0,PanelObjectName("ManagedTP"),OBJPROP_TOOLTIP,"TP "+TPSideCaption()+" proyectado; arrastra linea o resumen");
+         ObjectSetInteger(0,PanelObjectName("ManagedTP"),OBJPROP_WIDTH,3);
+         ObjectSetInteger(0,PanelObjectName("ManagedTP"),OBJPROP_STYLE,STYLE_SOLID);
+      }
+      RenderManagementProjection(tpRows,true,tpFloating);
+   }
+   else {ForgetPriceLevel("ManagedTP");ForgetPanelObject("tpinfo");}
    RenderBrokerPendingLines();
    lastPanelRefresh=GetTickCount64();panelDirty=false;
    ChartRedraw();

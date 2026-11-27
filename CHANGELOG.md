@@ -2,6 +2,22 @@
 
 All accepted updates are recorded here. Project versions use MAJOR.MINOR.PATCH, with one version per merged update. The MQL5 metadata encodes the minor and patch as three digits (e.g. v0.13.0 = 0.130). Intermediate QA commits are part of the same version.
 
+## [0.17.0] — 2026-11-27
+
+Story #34; PR #40; tickets #35–#39.
+- Toggle manual entry drafts without changing broker orders or selected side.
+- Simultaneous independently movable/applicable BE and TP projections; positive group net TP (including losing individual positions), per-ticket broker preflight, partial-result warning, preserve counterpart protection.
+- Individual 1R trailing from verified original opening history, independent of later SL edits; remove fixed trailing inputs; unknown/zero opening SL excluded.
+- Explicit zero-SL mode, fixed/minimum lot, no fabricated maximum risk, optional manual TP, preserved optional pending levels and verification.
+- CSM170 migration from CSM140/160; removed input/preset and broker-comment limitations documented. Demo/Real hedging retained.
+- QA amendment A (#41–#43): restore thick BE/TP chart overlays and live labels, nonoverlapping independent drag handles; compact TP row, read-only valid/covered counts and effective subset net P/L; broker-aware Apply states without duplicate sends. Same PR/version.
+- QA footer fix: reserve space only for captions actually rendered in the panel; keep external overlays and compact fallback rows without blank gaps.
+### Validation
+- Owner accepted functional HEAD `8bf8f6c2ef5a50eb388ce270b8b8943bbe2825f5` on 2026-11-27 and explicitly authorized squash merge and story/ticket synchronization after the footer correction. Original PR acceptance checklist is marked complete by owner; later visual QA and readiness confirmed in chat.
+- Initial integration: 32/32 focused structural checks and 59/59 translated decision scenarios across implementation revisions. QA amendment A: 29/29 structural and 23/23 translated decision scenarios, plus 7 synthetic geometry cases and 1 source assertion. Footer correction: 18/18 structural and 14/14 synthetic geometry scenarios.
+- No raw MetaEditor compiler log, native RED/GREEN, independent native review, or CI check-runs supplied to this chat. Owner-reported acceptance is not independently reproduced compiler/runtime evidence. GitHub reports main unprotected, no reviews or unresolved threads, and no registered commit statuses/check-runs; detailed branch protection/rules endpoints unavailable. Owner accepted the current functional revision and authorized completion with these disclosed limitations.
+- Final changelog-only closeout does not change executable code. No live-account verification, deployment or release performed.
+
 ## [0.16.0] — 2026-11-25
 
 Story #30, PR #33; tickets #31–#32.

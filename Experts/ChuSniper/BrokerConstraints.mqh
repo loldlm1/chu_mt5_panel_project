@@ -62,13 +62,13 @@ int PendingOutward(const ENUM_ORDER_TYPE type)
 {
    return type==ORDER_TYPE_BUY_STOP || type==ORDER_TYPE_SELL_LIMIT?1:-1;
 }
-bool EntryTypeAllowed(const ENUM_ORDER_TYPE type,const BrokerRules &b)
+bool EntryTypeAllowed(const ENUM_ORDER_TYPE type,const BrokerRules &b,const bool withSL=true,const bool withTP=true)
 {
    bool buy=BuyOrderType(type);
    if(b.tradeMode!=SYMBOL_TRADE_MODE_FULL &&
       !(buy && b.tradeMode==SYMBOL_TRADE_MODE_LONGONLY) &&
       !(!buy && b.tradeMode==SYMBOL_TRADE_MODE_SHORTONLY)) return false;
-   if((b.orderModes&SYMBOL_ORDER_SL)==0 || (b.orderModes&SYMBOL_ORDER_TP)==0) return false;
+   if((withSL && (b.orderModes&SYMBOL_ORDER_SL)==0) || (withTP && (b.orderModes&SYMBOL_ORDER_TP)==0)) return false;
    long required=SYMBOL_ORDER_MARKET;
    if(type==ORDER_TYPE_BUY_LIMIT || type==ORDER_TYPE_SELL_LIMIT) required=SYMBOL_ORDER_LIMIT;
    else if(type==ORDER_TYPE_BUY_STOP || type==ORDER_TYPE_SELL_STOP) required=SYMBOL_ORDER_STOP;
@@ -77,10 +77,11 @@ bool EntryTypeAllowed(const ENUM_ORDER_TYPE type,const BrokerRules &b)
 // Keep already valid prices locked. Adapt only invalid levels, rounding outward.
 bool ConstrainEntryPlan(const int dir,const ENUM_ORDER_TYPE type,const MqlTick &q,
                         const BrokerRules &b,const bool ratioMode,const double ratio,
-                        const bool rebuildRatio,double &entry,double &sl,double &tp)
+                        const bool rebuildRatio,double &entry,double &sl,double &tp,const bool intentionalNoSL=false)
 {
    if(!ValidBrokerQuote(q) || !MathIsValidNumber(entry) || !MathIsValidNumber(sl) ||
-      !MathIsValidNumber(tp) || entry<=0 || sl<=0 || tp<=0 ||
+      !MathIsValidNumber(tp) || entry<=0 || (intentionalNoSL?sl!=0:sl<=0) ||
+      (intentionalNoSL && ratioMode?tp!=0:tp<=0) ||
       (ratioMode && (!MathIsValidNumber(ratio) || ratio<=0))) return false;
    bool pending=PendingEntryType(type);
    double opening=dir>0?q.ask:q.bid;
@@ -91,10 +92,27 @@ bool ConstrainEntryPlan(const int dir,const ENUM_ORDER_TYPE type,const MqlTick &
       if(outward*(entry-opening)<b.stopGap-1e-9)
          entry=opening+outward*(b.stopGap+b.tick);
       entry=BrokerGrid(entry,b,outward);
-      sl+=entry-original;tp+=entry-original;
+      if(sl>0) sl+=entry-original;
+      if(tp>0) tp+=entry-original;
    }
    else entry=NormalizeDouble(MathRound(opening/b.tick)*b.tick,_Digits);
    double reference=pending?entry:(dir>0?q.bid:q.ask);
+   if(intentionalNoSL)
+   {
+      // Optional levels are intentional; zero must never be rounded into a price.
+      if(!ratioMode)
+      {
+         if(tp<=0) return false;
+         if(dir*(tp-reference)<b.stopGap-1e-9 || dir*(tp-entry)<b.tick-1e-9)
+            tp=dir>0?MathMax(reference+b.stopGap+b.tick,entry+b.tick):
+                     MathMin(reference-b.stopGap-b.tick,entry-b.tick);
+         tp=BrokerGrid(tp,b,dir);
+      }
+      return OnBrokerGrid(entry,b) && sl==0 &&
+             (ratioMode?tp==0:(OnBrokerGrid(tp,b) && dir*(tp-entry)>0 &&
+              dir*(tp-reference)>=b.stopGap-1e-9)) &&
+             (!pending || PendingOutward(type)*(entry-opening)>=b.stopGap-1e-9);
+   }
    double requestedSL=sl;
    if(dir*(reference-sl)<b.stopGap-1e-9 || dir*(entry-sl)<b.tick-1e-9)
       sl=dir>0?MathMin(reference-b.stopGap-b.tick,entry-b.tick):
@@ -179,7 +197,7 @@ bool CandidateStopValid(const int dir,const double market,const double sl,const 
 // 0: no change possible, 1: exact, 2: adapted, 3: already equal, 4: frozen.
 int ResolvePositionStop(const int dir,const MqlTick &q,const BrokerRules &b,
                         const double wanted,const double oldSL,const double oldTP,
-                        const bool allowExactRetreat,double &level)
+                        const bool allowExactRetreat,double &level,const bool recognizeAdaptedEqual=false)
 {
    if(!ValidBrokerQuote(q) || !MathIsValidNumber(wanted) || wanted<=0) return 0;
    double market=dir>0?q.bid:q.ask;
@@ -195,6 +213,37 @@ int ResolvePositionStop(const int dir,const MqlTick &q,const BrokerRules &b,
       level=BrokerGrid(dir>0?MathMin(wanted,market-gap):MathMax(wanted,market+gap),b,-dir);
       if(!CandidateStopValid(dir,market,level,b)) return 0;
    }
+   // Manual BE may recognize an already-matched adaptive target without
+   // sending a request. Trailing keeps its original improvement-only result.
+   if(recognizeAdaptedEqual && !exact && oldSL>0 && !PriceChanged(oldSL,level,b)) return 3;
    if(oldSL>0 && (!exact || !allowExactRetreat) && dir*(level-oldSL)<=b.tick*1e-6) return 0;
    return exact?1:2;
+}
+
+bool CandidateTargetValid(const int dir,const double market,const double tp,const BrokerRules &b)
+{
+   return OnBrokerGrid(tp,b) && dir*(tp-market)>=b.stopGap-1e-9 &&
+          (b.freezeGap<=0 || dir*(tp-market)>b.freezeGap+1e-9);
+}
+// TP is the opposite geometry of a SL. No adaptation after reaching the target.
+// 0 invalid, 1 exact, 2 adapted, 3 equal, 4 frozen, 5 reached.
+int ResolvePositionTarget(const int dir,const MqlTick &q,const BrokerRules &b,
+                          const double wanted,const double oldSL,const double oldTP,double &level)
+{
+   if(!ValidBrokerQuote(q) || !MathIsValidNumber(wanted) || wanted<=0) return 0;
+   double market=dir>0?q.bid:q.ask;
+   if(dir*(wanted-market)<=0) return 5;
+   if((b.orderModes&SYMBOL_ORDER_TP)==0) return 0;
+   if(ExistingProtectionFrozen(dir,market,oldSL,oldTP,b)) return 4;
+   if(oldSL>0 && (!OnBrokerGrid(oldSL,b) || dir*(market-oldSL)<b.stopGap-1e-9)) return 0;
+   level=BrokerGrid(wanted,b,dir);
+   bool exact=CandidateTargetValid(dir,market,level,b);
+   if(!exact)
+   {
+      double gap=MathMax(b.stopGap,b.freezeGap+b.tick);
+      level=BrokerGrid(dir>0?MathMax(wanted,market+gap):MathMin(wanted,market-gap),b,dir);
+      if(!CandidateTargetValid(dir,market,level,b)) return 0;
+   }
+   if(oldTP>0 && !PriceChanged(oldTP,level,b)) return 3;
+   return PriceChanged(level,wanted,b)?2:1;
 }

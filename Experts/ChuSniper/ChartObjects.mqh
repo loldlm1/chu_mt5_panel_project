@@ -113,6 +113,24 @@ double ParsePanelNumber(string s)
    StringReplace(s,",",".");
    return StringToDouble(s);
 }
+// StringToDouble alone maps malformed text to zero, which must never opt in
+// to an unprotected entry. Accept only a finite, explicit decimal.
+bool ParseNonnegativePanelDecimal(string text,double &value)
+{
+   StringTrimLeft(text);StringTrimRight(text);
+   StringReplace(text,",",".");
+   bool digit=false,point=false,nonzero=false;
+   for(int i=0;i<StringLen(text);i++)
+   {
+      ushort c=StringGetCharacter(text,i);
+      if(c>='0' && c<='9'){digit=true;if(c!='0') nonzero=true;}
+      else if(c=='.' && !point) point=true;
+      else return false;
+   }
+   if(!digit) return false;
+   value=StringToDouble(text);
+   return MathIsValidNumber(value) && value>=0 && value!=EMPTY_VALUE && (!nonzero || value>0);
+}
 string PanelNumberText(const double value)
 {
    if(!MathIsValidNumber(value)) return "--";
@@ -156,6 +174,14 @@ void DrawPanelInput(string k,int x,int y,int w,string s)
    if(fresh) SetPanelPrecisionHint(k,value);
 }
 string PanelInputText(string k){return ObjectGetString(0,PanelObjectName(k),OBJPROP_TEXT);}
+bool ReadPanelDecimal(const string key,double &value)
+{
+   string caption=PanelInputText(key),raw=PanelInputRaw(key);
+   double precise=0;
+   if(raw!="" && ParseNonnegativePanelDecimal(raw,precise) && caption==PanelNumberText(precise))
+   {value=precise;return true;}
+   return ParseNonnegativePanelDecimal(caption,value);
+}
 double PanelInputNumber(string k)
 {
    string text=PanelInputText(k),raw=PanelInputRaw(k);

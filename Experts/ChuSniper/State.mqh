@@ -1,20 +1,28 @@
 input ulong Magic=110629;
-input int ActivationPoints=250;
-input int TrailPoints=150;
-input int StepPoints=250; // legacy preset compatibility; unused by Simple trailing
 input bool IncludeOtherPositions=false;
 enum ENUM_CSM_PANEL_THEME { PANEL_ORIGINAL=0, PANEL_PANDORA=1 };
 input ENUM_CSM_PANEL_THEME PanelTheme=PANEL_ORIGINAL;
 CTrade trade;
 string panelObjectPrefix="CSM_",csmPanelStatus="";
-int tradeSide=1, breakEvenSide=1, riskMode=0, trailingMode=0;
-bool groupMode=true, pendingOrderMode=false, orderPrepared=false, fixedStopMode=false, riskRewardMode=true, percentTargetMode=false, breakEvenShown=false, tradeExecutionEnabled=false;
-double csmPlannedEntry=0,plannedStopLoss=0,plannedTakeProfit=0,stopDistancePoints=250,rewardRiskRatio=2,breakEvenPrice=0;
+int tradeSide=1, breakEvenSide=1, takeProfitSide=1, riskMode=0, trailingMode=0;
+bool groupMode=true, pendingOrderMode=false, orderPrepared=false, fixedStopMode=false, riskRewardMode=true, percentTargetMode=false, breakEvenShown=false, takeProfitShown=false, tradeExecutionEnabled=false;
+double csmPlannedEntry=0,plannedStopLoss=0,plannedTakeProfit=0,stopDistancePoints=250,rewardRiskRatio=2,breakEvenPrice=0,takeProfitPrice=0;
 ulong closeConfirmationDeadline=0;
 bool editingStopPoints=false;
 ulong trailingPositionTickets[];
 double favorablePrices[];
 ulong trailingRetryAfter[]; // transient server-rejection cooldown, never persisted
+// 1 = reliable original distance, 0 = opened without SL, -1 = unavailable.
+// The authoritative durable record is opening deal/order history, never current SL.
+struct InitialRiskRecord
+{
+   ulong identifier,checked,lastSeen;
+   double volume,entry,distance;
+   int state;
+};
+InitialRiskRecord initialRiskCache[];
+int trailingNoSL=0,trailingUnknown=0;
+ulong lastTrailingPrune=0;
 #define CSM_PANEL_NAVY C'20,30,43'
 color textColor=C'225,232,241', highlightColor=C'255,215,49', infoColor=C'70,169,255', sellColor=C'255,100,100', buyColor=C'42,192,179';
 
@@ -45,7 +53,7 @@ ulong lastStateSave=0;
 
 string activePanelScope="",lastSavedPanelRecord="";
 
-ulong lastQuickQuoteRefresh=0,lastBEProjectionRefresh=0;
+ulong lastQuickQuoteRefresh=0,lastBEProjectionRefresh=0,lastTPProjectionRefresh=0;
 
 #define CSM_QUICK_HEIGHT 50
 #define CSM_QUICK_EXTRA (CSM_QUICK_HEIGHT-25)

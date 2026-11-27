@@ -45,40 +45,49 @@ string ChartLevelNearMouse(const int x,const int y)
    if(PointOnPanel(x,y)) return "";
    double price=0,offset=0;
    if(!MouseChartPrice(x,y,price) || !MouseChartPrice(x,y+7,offset)) return "";
-   double tolerance=MathAbs(price-offset),best=tolerance;
-   string closest="";
+   double tolerance=MathAbs(price-offset),best=tolerance,managedBest=tolerance;
+   string closest="",managedClosest="";
    for(int i=0;i<ArraySize(priceLevels);i++)
    {
       if(!priceLevels[i].draggable) continue;
       string key=priceLevels[i].key;
       double distance=MathAbs(priceLevels[i].price-price);
       if(distance>tolerance) continue;
-      if(key=="BE" && breakEvenShown) return key;
-      if(distance<=best){closest=key;best=distance;}
+      if(key=="BE" || key=="ManagedTP")
+      {
+         if(distance<=managedBest){managedClosest=key;managedBest=distance;}
+      }
+      else if(distance<=best){closest=key;best=distance;}
    }
-   return closest;
+   // Never accidentally drag a broker pending entry underneath a management
+   // projection. Separate caption handles disambiguate coincident BE/TP.
+   return managedClosest!=""?managedClosest:closest;
 }
 void PreviewDraggedPrice(const double price)
 {
-   chartDragPrice=price;
    if(chartDragKey=="Entrada")
    {
+      double nextSL=chartDragStartSL>0?NormalizeTradePrice(chartDragStartSL+price-chartDragStartPrice):0;
+      double nextTP=chartDragStartTP>0?NormalizeTradePrice(chartDragStartTP+price-chartDragStartPrice):0;
+      if((chartDragStartSL>0 && nextSL<=0) || (chartDragStartTP>0 && nextTP<=0)) return;
       csmPlannedEntry=price;
-      plannedStopLoss=NormalizeTradePrice(chartDragStartSL+price-chartDragStartPrice);
-      plannedTakeProfit=NormalizeTradePrice(chartDragStartTP+price-chartDragStartPrice);
-      SetPriceLevel("Stop loss",plannedStopLoss);SetPriceLevel("Take profit",plannedTakeProfit);
+      plannedStopLoss=nextSL;plannedTakeProfit=nextTP;
+      if(nextSL>0) SetPriceLevel("Stop loss",nextSL);
+      if(nextTP>0) SetPriceLevel("Take profit",nextTP);
    }
    else if(chartDragKey=="Stop loss"){plannedStopLoss=price;fixedStopMode=false;riskRewardMode=false;}
    else if(chartDragKey=="Take profit"){plannedTakeProfit=price;riskRewardMode=false;}
    else if(chartDragKey=="BE") breakEvenPrice=price;
+   else if(chartDragKey=="ManagedTP") takeProfitPrice=price;
    else if(StringFind(chartDragKey,"Pending_")==0)
    {
       double delta=price-chartDragStartPrice;
       if(chartDragStartSL>0) DrawPriceLevel("DragPendingSL",NormalizeTradePrice(chartDragStartSL+delta),sellColor,false);
       if(chartDragStartTP>0) DrawPriceLevel("DragPendingTP",NormalizeTradePrice(chartDragStartTP+delta),infoColor,false);
    }
+   chartDragPrice=price;
    SetPriceLevel(chartDragKey,price);
-   if(chartDragKey=="BE") RefreshBEProjectionDuringDrag();
+   if(chartDragKey=="BE" || chartDragKey=="ManagedTP") RefreshManagementProjectionDuringDrag();
    ChartRedraw();
 }
 void ClearDragPreview()
@@ -92,7 +101,7 @@ void CancelChartDrag()
 {
    if(!chartLineDragging) return;
    PreviewDraggedPrice(chartDragStartPrice);
-   if(chartDragKey=="BE") RefreshBEProjectionDuringDrag(true);
+   if(chartDragKey=="BE" || chartDragKey=="ManagedTP") RefreshManagementProjectionDuringDrag(true);
    fixedStopMode=chartDragOriginalFixedStop;riskRewardMode=chartDragOriginalRiskReward;
    ClearDragPreview();
 }
@@ -110,6 +119,8 @@ void FinishChartDrag()
       // can invoke the existing per-ticket BE modification path.
       csmPanelStatus="BE "+BESideCaption()+" proyectado: pendiente de aplicar";
    }
+   else if(key=="ManagedTP" && takeProfitShown)
+      csmPanelStatus="TP "+TPSideCaption()+" proyectado: pendiente de aplicar";
    else if(StringFind(key,"Pending_")==0)
       AdjustBrokerPendingOrder(key,price,initial,chartDragStartSL,chartDragStartTP);
    else if(key=="Entrada" || key=="Stop loss" || key=="Take profit")
@@ -186,7 +197,8 @@ void HandleChartMouseMove(const int x,const int y,const string state)
       SetTradeLevelDragCaptured(true);SetChartScrollCaptured(true);ChartRedraw();
       return;
    }
-   string candidate=ChartLevelNearMouse(x,y);
+   string candidate=breakEvenShown && PanelHit("beinfo",x,y)?"BE":
+                    takeProfitShown && PanelHit("tpinfo",x,y)?"ManagedTP":ChartLevelNearMouse(x,y);
    if(candidate=="") return;
    double mouse=0;
    int slot=PriceLevelSlot(candidate);
@@ -205,6 +217,6 @@ void HandleChartMouseMove(const int x,const int y,const string state)
    chartDragOriginalFixedStop=fixedStopMode;chartDragOriginalRiskReward=riskRewardMode;
    chartDragLastEvent=chartHoverAt;chartLineDragging=true;suppressPanelClick=true;
    SetTradeLevelDragCaptured(true);SetChartScrollCaptured(true);
-   if(chartDragKey=="BE") RefreshBEProjectionDuringDrag(true);
+   if(chartDragKey=="BE" || chartDragKey=="ManagedTP") RefreshManagementProjectionDuringDrag(true);
    ChartRedraw();
 }
