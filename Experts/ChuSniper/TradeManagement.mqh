@@ -174,7 +174,8 @@ void ApplyTakeProfitTargets()
          PrintFormat("CSM TP #%I64u: %s",rows[i].id,trade.ResultRetcodeDescription());
          plans[i].state=2;
          if(retcode==TRADE_RETCODE_FROZEN) blocked++;
-         else if(retcode==TRADE_RETCODE_TIMEOUT || retcode==TRADE_RETCODE_CONNECTION)
+         else if(retcode==0 || retcode==TRADE_RETCODE_TIMEOUT || retcode==TRADE_RETCODE_CONNECTION ||
+                 retcode==TRADE_RETCODE_PLACED)
          {unverified++;break;}
          else rejected++;
          continue;

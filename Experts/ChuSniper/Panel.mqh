@@ -47,6 +47,7 @@ void RenderManagementProjection(PositionRow &rows[],const bool isTP,const double
       panelY+(int)MathRound(y*panelDrawScale),(int)MathMax(1,MathRound(444*panelDrawScale)),
       (int)MathMax(1,MathRound(25*panelDrawScale)),preview,PanelAccent(CSM_PANEL_NAVY),ink,
       (int)MathMax(6,MathRound(10*panelDrawScale)));
+   ObjectSetInteger(0,PanelObjectName(key),OBJPROP_STATE,false);
 }
 void RefreshManagementProjectionDuringDrag(const bool force=false)
 {
@@ -70,7 +71,7 @@ void RenderPanel()
    ClampPanelGeometry();
    int x=8,y=7;
    DrawPanelObject("bg",OBJ_RECTANGLE_LABEL,0,0,460,PanelBaseHeight(),"",PanelBackground(),PanelBorder());
-   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.16.0 | "+AccountModeCaption()+(SupportedTradingAccount()?"":" (solo vista)"));
+   DrawPanelButton("title",x,y,407,"Chu Sniper Manager | v0.17.0 | "+AccountModeCaption()+(SupportedTradingAccount()?"":" (solo vista)"));
    DrawPanelButton("minimize",x+412,y,32,panelMinimized?"+":"-");
    y+=29;
    MqlTick quickQuote;

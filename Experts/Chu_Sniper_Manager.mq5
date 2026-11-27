@@ -1,5 +1,5 @@
 #property strict
-#property version "0.160"
+#property version "0.170"
 #include <Trade/Trade.mqh>
 #include "ChuSniper/State.mqh"
 #include "ChuSniper/ChartStyle.mqh"
@@ -255,5 +255,8 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
    if(trans.type==TRADE_TRANSACTION_DEAL_ADD || trans.type==TRADE_TRANSACTION_DEAL_UPDATE ||
       trans.type==TRADE_TRANSACTION_DEAL_DELETE)
       InvalidatePositionFeeCache();
+   // Broker history corrections can invalidate a previously verified origin.
+   if(trans.type==TRADE_TRANSACTION_DEAL_UPDATE || trans.type==TRADE_TRANSACTION_DEAL_DELETE)
+      ArrayResize(initialRiskCache,0);
    panelDirty=true;
 }

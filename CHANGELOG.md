@@ -2,6 +2,16 @@
 
 All accepted updates are recorded here. Project versions use MAJOR.MINOR.PATCH, with one version per merged update. The MQL5 metadata encodes the minor and patch as three digits (e.g. v0.13.0 = 0.130). Intermediate QA commits are part of the same version.
 
+## [0.17.0] — pending acceptance
+
+Story #34; PR #40; tickets #35–#39.
+- Toggle manual entry drafts without changing broker orders or selected side.
+- Simultaneous independently movable/applicable BE and TP projections; positive group net TP (including losing individual positions), per-ticket broker preflight, partial-result warning, preserve counterpart protection.
+- Individual 1R trailing from verified original opening history, independent of later SL edits; remove fixed trailing inputs; unknown/zero opening SL excluded.
+- Explicit zero-SL mode, fixed/minimum lot, no fabricated maximum risk, optional manual TP, preserved optional pending levels and verification.
+- CSM170 migration from CSM140/160; removed input/preset and broker-comment limitations documented. Demo/Real hedging retained.
+- Pending MetaEditor, independent native Standards/Spec review and focused owner Demo QA.
+
 ## [0.16.0] — 2026-11-25
 
 Story #30, PR #33; tickets #31–#32.

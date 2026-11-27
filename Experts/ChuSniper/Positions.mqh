@@ -89,7 +89,9 @@ int CollectManagedPositionsForSide(PositionRow &rows[],const int direction,bool 
       {
          ulong deal=HistoryDealGetTicket(j);
          if(!deal){feeKnown=false;continue;}
-         if(HistoryDealGetInteger(deal,DEAL_ENTRY)!=DEAL_ENTRY_IN) continue;
+         long entryKind=0;
+         if(!HistoryDealGetInteger(deal,DEAL_ENTRY,entryKind)){feeKnown=false;continue;}
+         if(entryKind!=DEAL_ENTRY_IN) continue;
          double v=0,commission=0,fee=0;
          if(!HistoryDealGetDouble(deal,DEAL_VOLUME,v) || !HistoryDealGetDouble(deal,DEAL_COMMISSION,commission) ||
             !HistoryDealGetDouble(deal,DEAL_FEE,fee) || !MathIsValidNumber(v) || v<=0 ||
