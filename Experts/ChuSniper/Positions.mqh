@@ -88,6 +88,7 @@ int CollectManagedPositionsForSide(PositionRow &rows[],const int direction,bool 
       for(int j=0;j<HistoryDealsTotal();j++)
       {
          ulong deal=HistoryDealGetTicket(j);
+         if(!deal){feeKnown=false;continue;}
          if(HistoryDealGetInteger(deal,DEAL_ENTRY)!=DEAL_ENTRY_IN) continue;
          double v=0,commission=0,fee=0;
          if(!HistoryDealGetDouble(deal,DEAL_VOLUME,v) || !HistoryDealGetDouble(deal,DEAL_COMMISSION,commission) ||
@@ -133,13 +134,14 @@ double ProfitAtPriceLevel(PositionRow &rows[],double level,const int direction,c
    }
    return MathIsValidNumber(total)?total:EMPTY_VALUE;
 }
-double CalculateBreakEvenPrice(PositionRow &rows[],const int direction)
+double CalculateBreakEvenPrice(PositionRow &rows[],const int direction,const bool requireKnownCost=false)
 {
    double sum=0,vol=0;
    for(int i=0;i<ArraySize(rows);i++){sum+=rows[i].open*rows[i].vol;vol+=rows[i].vol;}
    if(vol<=0) return 0;
    double base=sum/vol, move=MathMax(_Point*100,SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE));
-   double a=ProfitAtPriceLevel(rows,base,direction), b=ProfitAtPriceLevel(rows,base+move,direction);
-   if(a==EMPTY_VALUE || b==EMPTY_VALUE || MathAbs(a-b)<1e-10) return NormalizeTradePrice(base);
+   double a=ProfitAtPriceLevel(rows,base,direction,requireKnownCost), b=ProfitAtPriceLevel(rows,base+move,direction,requireKnownCost);
+   if(a==EMPTY_VALUE || b==EMPTY_VALUE || MathAbs(a-b)<1e-10)
+      return requireKnownCost?0:NormalizeTradePrice(base);
    return NormalizeTradePrice(base-a*move/(b-a));
 }

@@ -45,17 +45,23 @@ string ChartLevelNearMouse(const int x,const int y)
    if(PointOnPanel(x,y)) return "";
    double price=0,offset=0;
    if(!MouseChartPrice(x,y,price) || !MouseChartPrice(x,y+7,offset)) return "";
-   double tolerance=MathAbs(price-offset),best=tolerance;
-   string closest="";
+   double tolerance=MathAbs(price-offset),best=tolerance,managedBest=tolerance;
+   string closest="",managedClosest="";
    for(int i=0;i<ArraySize(priceLevels);i++)
    {
       if(!priceLevels[i].draggable) continue;
       string key=priceLevels[i].key;
       double distance=MathAbs(priceLevels[i].price-price);
       if(distance>tolerance) continue;
-      if(distance<=best){closest=key;best=distance;}
+      if(key=="BE" || key=="ManagedTP")
+      {
+         if(distance<=managedBest){managedClosest=key;managedBest=distance;}
+      }
+      else if(distance<=best){closest=key;best=distance;}
    }
-   return closest;
+   // Never accidentally drag a broker pending entry underneath a management
+   // projection. Separate caption handles disambiguate coincident BE/TP.
+   return managedClosest!=""?managedClosest:closest;
 }
 void PreviewDraggedPrice(const double price)
 {

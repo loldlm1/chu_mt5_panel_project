@@ -187,8 +187,8 @@ void ApplyTakeProfitTargets()
    }
    for(int i=0;i<n;i++) if(plans[i].state==0) halted++;
    int covered=exact+adapted+same;
-   csmPanelStatus=StringFormat("TP %s %d/%d | %s",TPSideCaption(),covered,n,
-                               covered==n?"completo":"parcial/no completo: revisar");
+   csmPanelStatus=StringFormat("TP %s %d/%d | fr %d | otros %d%s",TPSideCaption(),covered,n,blocked,
+                               skipped+unknown+rejected+unverified+halted,covered==n?"":" | revisar");
    PrintFormat("CSM TP %s: exactos=%d adaptados=%d iguales=%d freeze=%d omitidos=%d desconocidos=%d rechazados=%d no verificados=%d detenidos=%d; no atomico",
                TPSideCaption(),exact,adapted,same,blocked,skipped,unknown,rejected,unverified,halted);
 }

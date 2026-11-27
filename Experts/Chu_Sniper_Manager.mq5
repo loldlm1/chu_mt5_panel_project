@@ -164,6 +164,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(k=="units") {percentTargetMode=!percentTargetMode;SetPanelInputText("amount",percentTargetMode?"50":"100");}
    if(k=="be")
    {
+      if(!PanelHit(k,(int)lp,(int)dp)) return;
       if(breakEvenShown) breakEvenShown=false;
       else
       {
@@ -194,7 +195,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
          PositionRow rows[];
          if(direction!=0 && CollectManagedPositionsForSide(rows,direction)>0)
          {
-            double level=CalculateBreakEvenPrice(rows,direction);
+            double level=CalculateBreakEvenPrice(rows,direction,true);
             if(MathIsValidNumber(level) && level>0 && level!=EMPTY_VALUE)
             {
                takeProfitSide=direction;takeProfitPrice=level;takeProfitShown=true;

@@ -212,6 +212,7 @@ int ResolvePositionTarget(const int dir,const MqlTick &q,const BrokerRules &b,
    if(!ValidBrokerQuote(q) || !MathIsValidNumber(wanted) || wanted<=0) return 0;
    double market=dir>0?q.bid:q.ask;
    if(dir*(wanted-market)<=0) return 5;
+   if((b.orderModes&SYMBOL_ORDER_TP)==0) return 0;
    if(ExistingProtectionFrozen(dir,market,oldSL,oldTP,b)) return 4;
    if(oldSL>0 && (!OnBrokerGrid(oldSL,b) || dir*(market-oldSL)<b.stopGap-1e-9)) return 0;
    level=BrokerGrid(wanted,b,dir);
