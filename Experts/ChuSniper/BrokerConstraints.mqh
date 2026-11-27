@@ -198,3 +198,30 @@ int ResolvePositionStop(const int dir,const MqlTick &q,const BrokerRules &b,
    if(oldSL>0 && (!exact || !allowExactRetreat) && dir*(level-oldSL)<=b.tick*1e-6) return 0;
    return exact?1:2;
 }
+
+bool CandidateTargetValid(const int dir,const double market,const double tp,const BrokerRules &b)
+{
+   return OnBrokerGrid(tp,b) && dir*(tp-market)>=b.stopGap-1e-9 &&
+          (b.freezeGap<=0 || dir*(tp-market)>b.freezeGap+1e-9);
+}
+// TP is the opposite geometry of a SL. No adaptation after reaching the target.
+// 0 invalid, 1 exact, 2 adapted, 3 equal, 4 frozen, 5 reached.
+int ResolvePositionTarget(const int dir,const MqlTick &q,const BrokerRules &b,
+                          const double wanted,const double oldSL,const double oldTP,double &level)
+{
+   if(!ValidBrokerQuote(q) || !MathIsValidNumber(wanted) || wanted<=0) return 0;
+   double market=dir>0?q.bid:q.ask;
+   if(dir*(wanted-market)<=0) return 5;
+   if(ExistingProtectionFrozen(dir,market,oldSL,oldTP,b)) return 4;
+   if(oldSL>0 && (!OnBrokerGrid(oldSL,b) || dir*(market-oldSL)<b.stopGap-1e-9)) return 0;
+   level=BrokerGrid(wanted,b,dir);
+   bool exact=CandidateTargetValid(dir,market,level,b);
+   if(!exact)
+   {
+      double gap=MathMax(b.stopGap,b.freezeGap+b.tick);
+      level=BrokerGrid(dir>0?MathMax(wanted,market+gap):MathMin(wanted,market-gap),b,dir);
+      if(!CandidateTargetValid(dir,market,level,b)) return 0;
+   }
+   if(oldTP>0 && !PriceChanged(oldTP,level,b)) return 3;
+   return PriceChanged(level,wanted,b)?2:1;
+}

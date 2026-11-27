@@ -25,7 +25,7 @@ int OnInit()
    ArrayResize(panelObjects,0);ArrayResize(priceLevels,0);InvalidatePositionFeeCache();
    chartLeftPressed=false;suppressPanelClick=false;editingStopPoints=false;
    closeConfirmationDeadline=0;panelGesture=0;chartLineDragging=false;chartDragKey="";
-   panelDirty=true;lastPanelRefresh=0;lastQuickQuoteRefresh=0;lastBEProjectionRefresh=0;
+   panelDirty=true;lastPanelRefresh=0;lastQuickQuoteRefresh=0;lastBEProjectionRefresh=0;lastTPProjectionRefresh=0;
    LoadPanelState();
    InitializeChartInteraction();
    EventSetMillisecondTimer(250);
@@ -53,7 +53,7 @@ void OnTimer()
    if(chartLineDragging)
    {
       // Quotes/positions may change even when the pointer is stationary.
-      RefreshBEProjectionDuringDrag();
+      RefreshManagementProjectionDuringDrag();
       return;
    }
    if(panelGesture!=0) return; // No full periodic repaint during a live gesture.
@@ -101,7 +101,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    }
    if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging || panelGesture!=0 || suppressPanelClick) return;
    if(PriceLevelSlot(k)>=0 || !PanelControlVisible(k)) return;
-   if(k=="title" || k=="resize" || k=="bg" || k=="quickInfo" || k=="beinfo") return;
+   if(k=="title" || k=="resize" || k=="bg" || k=="quickInfo" || k=="beinfo" || k=="tpinfo") return;
    if(k=="minimize")
    {
       ObjectSetInteger(0,sp,OBJPROP_STATE,false);
@@ -126,10 +126,11 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       else
       {
          if(breakEvenShown && breakEvenSide!=direction) breakEvenShown=false;
+         if(takeProfitShown && takeProfitSide!=direction) takeProfitShown=false;
          PrepareOrder(direction);
       }
    }
-   if(k=="scope"){groupMode=!groupMode;breakEvenShown=false;}
+   if(k=="scope"){groupMode=!groupMode;breakEvenShown=false;takeProfitShown=false;}
    if(k=="mode")
    {
       pendingOrderMode=!pendingOrderMode;
@@ -183,13 +184,39 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
          else csmPanelStatus="BE: no hay posiciones elegibles";
       }
    }
-   if(k=="send" || k=="apply" || k=="realize" || k=="close")
+   if(k=="tp")
+   {
+      if(!PanelHit(k,(int)lp,(int)dp)) return;
+      if(takeProfitShown) takeProfitShown=false;
+      else
+      {
+         int direction=ResolveBEActivationSide(tradeSide);
+         PositionRow rows[];
+         if(direction!=0 && CollectManagedPositionsForSide(rows,direction)>0)
+         {
+            double level=CalculateBreakEvenPrice(rows,direction);
+            if(MathIsValidNumber(level) && level>0 && level!=EMPTY_VALUE)
+            {
+               takeProfitSide=direction;takeProfitPrice=level;takeProfitShown=true;
+               if(!orderPrepared) tradeSide=direction;
+               csmPanelStatus="TP "+TPSideCaption()+" proyectado: pendiente de aplicar";
+            }
+            else csmPanelStatus="TP: nivel no disponible";
+         }
+         else csmPanelStatus="TP: no hay posiciones elegibles";
+      }
+   }
+   if(k=="send" || k=="apply" || k=="applyTP" || k=="realize" || k=="close")
    {
       if(!TradePermissionsAllowed()) csmPanelStatus="Trading no permitido: requiere hedging y permisos";
       else if(k=="send") SubmitOrder();
       else if(k=="apply")
       {
          if(PanelHit(k,(int)lp,(int)dp)) ApplyBreakEvenStops();
+      }
+      else if(k=="applyTP")
+      {
+         if(PanelHit(k,(int)lp,(int)dp)) ApplyTakeProfitTargets();
       }
       else if(k=="realize") CloseManagedPositions(false);
       else if(closeConfirmationDeadline>GetTickCount64()){closeConfirmationDeadline=0;CloseManagedPositions(true);}

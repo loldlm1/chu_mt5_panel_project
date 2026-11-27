@@ -62,6 +62,136 @@ void ApplyBreakEvenStops()
    PrintFormat("CSM BE %s: exactos=%d adaptados=%d iguales=%d no superado=%d sin mejora=%d freeze=%d rechazados/no verificados=%d",
                BESideCaption(),exact,adapted,same,notCrossed,unchanged,frozen,failed);
 }
+// The per-ticket snapshot is refreshed before each modification; the initial
+// fee allocation is reused only while the same volume/entry remain open.
+struct TPApplyPlan
+{
+   int decision,state; // state: 0 candidate, 1 verified, 2 excluded
+   double sl,oldTP,level,net;
+};
+bool RefreshTPRow(PositionRow &row,const int direction)
+{
+   if(!SelectManagedTicket(row.id) ||
+      PositionGetInteger(POSITION_TYPE)!=(direction>0?POSITION_TYPE_BUY:POSITION_TYPE_SELL) ||
+      MathAbs(PositionGetDouble(POSITION_VOLUME)-row.vol)>1e-8 ||
+      MathAbs(PositionGetDouble(POSITION_PRICE_OPEN)-row.open)>_Point*1e-6) return false;
+   row.stop=PositionGetDouble(POSITION_SL);row.target=PositionGetDouble(POSITION_TP);
+   row.swap=PositionGetDouble(POSITION_SWAP);
+   return row.costKnown && MathIsValidNumber(row.swap);
+}
+int ReadTPPlan(PositionRow &row,const int direction,const double wanted,TPApplyPlan &plan)
+{
+   if(!TradePermissionsAllowed() || !RefreshTPRow(row,direction)) return -1;
+   BrokerRules b;MqlTick q;
+   if(!ReadBrokerRules(b) || !SymbolInfoTick(_Symbol,q) || !ValidBrokerQuote(q)) return -1;
+   plan.sl=row.stop;plan.oldTP=row.target;
+   int decision=ResolvePositionTarget(direction,q,b,wanted,row.stop,row.target,plan.level);
+   if(decision<1 || decision>3) return decision;
+   plan.net=PositionProfitAtLevel(row,plan.level,direction,true);
+   if(plan.net==EMPTY_VALUE) return -1;
+   return decision;
+}
+void ExcludeTPPlan(TPApplyPlan &plan,const int decision,int &blocked,int &skipped,int &unknown)
+{
+   plan.state=2;plan.decision=decision;
+   if(decision==4) blocked++;
+   else if(decision<0) unknown++;
+   else skipped++;
+}
+// Recheck verified participants and all still-executable candidates before
+// each request. Closed/changed verified positions make the outcome uncertain.
+bool RevalidateTPBasket(PositionRow &rows[],TPApplyPlan &plans[],const int direction,const double wanted,
+                        double &total,int &blocked,int &skipped,int &unknown)
+{
+   total=0;int participants=0;
+   for(int i=0;i<ArraySize(rows);i++)
+   {
+      if(plans[i].state==2) continue;
+      if(plans[i].state==1)
+      {
+         if(!RefreshTPRow(rows[i],direction) ||
+            MathAbs(rows[i].target-plans[i].level)>_Point*1e-6) return false;
+         plans[i].net=PositionProfitAtLevel(rows[i],plans[i].level,direction,true);
+         if(plans[i].net==EMPTY_VALUE) return false;
+      }
+      else
+      {
+         int decision=ReadTPPlan(rows[i],direction,wanted,plans[i]);
+         if(decision<1 || decision>3){ExcludeTPPlan(plans[i],decision,blocked,skipped,unknown);continue;}
+         plans[i].decision=decision;
+      }
+      total+=plans[i].net;participants++;
+   }
+   return participants>0 && MathIsValidNumber(total) && total>0;
+}
+void ApplyTakeProfitTargets()
+{
+   if(!takeProfitShown || takeProfitPrice<=0){csmPanelStatus="Selecciona TP valido";return;}
+   if(!TradePermissionsAllowed()){csmPanelStatus="TP: trading no permitido";return;}
+   PositionRow rows[];
+   int n=CollectManagedPositionsForSide(rows,takeProfitSide);
+   if(n==0){csmPanelStatus="TP: no hay posiciones elegibles";return;}
+   double wanted=takeProfitPrice;
+   int direction=takeProfitSide;
+   double requested=ProfitAtPriceLevel(rows,wanted,direction,true);
+   if(requested==EMPTY_VALUE || requested<=0)
+   {csmPanelStatus="TP: proyeccion neta no positiva o desconocida";return;}
+   TPApplyPlan plans[];ArrayResize(plans,n);
+   for(int i=0;i<n;i++){plans[i].state=0;plans[i].decision=0;}
+   int exact=0,adapted=0,same=0,blocked=0,skipped=0,unknown=0,rejected=0,unverified=0,halted=0;
+   double total=0;
+   if(!RevalidateTPBasket(rows,plans,direction,wanted,total,blocked,skipped,unknown))
+   {
+      csmPanelStatus="TP: grupo modificable no rentable o desconocido";
+      PrintFormat("CSM TP preflight: alcance %.2f, subconjunto %.2f, freeze=%d omitidos=%d desconocidos=%d",requested,total,blocked,skipped,unknown);
+      return;
+   }
+   // Confirm profitable contributors before negative ones, reducing the chance
+   // of applying a loss target before the profitable part is verified.
+   for(int step=0;step<n;step++)
+   {
+      if(!RevalidateTPBasket(rows,plans,direction,wanted,total,blocked,skipped,unknown)) break;
+      int i=-1;
+      for(int j=0;j<n;j++)
+         if(plans[j].state==0 && (i<0 || plans[j].net>plans[i].net)) i=j;
+      if(i<0) break;
+      double priorNet=plans[i].net;
+      int decision=ReadTPPlan(rows[i],direction,wanted,plans[i]);
+      if(decision<1 || decision>3){ExcludeTPPlan(plans[i],decision,blocked,skipped,unknown);continue;}
+      if(!MathIsValidNumber(total-priorNet+plans[i].net) || total-priorNet+plans[i].net<=0) break;
+      if(decision==3){plans[i].state=1;same++;continue;}
+      // Never replace a counterpart protection changed after the last snapshot.
+      if(!TradePermissionsAllowed() || !SelectManagedTicket(rows[i].id) ||
+         PositionGetInteger(POSITION_TYPE)!=(direction>0?POSITION_TYPE_BUY:POSITION_TYPE_SELL) ||
+         MathAbs(PositionGetDouble(POSITION_VOLUME)-rows[i].vol)>1e-8 ||
+         MathAbs(PositionGetDouble(POSITION_SL)-plans[i].sl)>_Point*1e-6 ||
+         MathAbs(PositionGetDouble(POSITION_TP)-plans[i].oldTP)>_Point*1e-6)
+      {ExcludeTPPlan(plans[i],0,blocked,skipped,unknown);continue;}
+      if(!trade.PositionModify(rows[i].id,plans[i].sl,plans[i].level) || !TradeResultCompleted())
+      {
+         uint retcode=trade.ResultRetcode();
+         PrintFormat("CSM TP #%I64u: %s",rows[i].id,trade.ResultRetcodeDescription());
+         plans[i].state=2;
+         if(retcode==TRADE_RETCODE_FROZEN) blocked++;
+         else if(retcode==TRADE_RETCODE_TIMEOUT || retcode==TRADE_RETCODE_CONNECTION)
+         {unverified++;break;}
+         else rejected++;
+         continue;
+      }
+      if(!RefreshTPRow(rows[i],direction) ||
+         MathAbs(rows[i].stop-plans[i].sl)>_Point*1e-6 ||
+         MathAbs(rows[i].target-plans[i].level)>_Point*1e-6)
+      {plans[i].state=2;unverified++;break;}
+      plans[i].state=1;
+      if(decision==1) exact++;else adapted++;
+   }
+   for(int i=0;i<n;i++) if(plans[i].state==0) halted++;
+   int covered=exact+adapted+same;
+   csmPanelStatus=StringFormat("TP %s %d/%d | %s",TPSideCaption(),covered,n,
+                               covered==n?"completo":"parcial/no completo: revisar");
+   PrintFormat("CSM TP %s: exactos=%d adaptados=%d iguales=%d freeze=%d omitidos=%d desconocidos=%d rechazados=%d no verificados=%d detenidos=%d; no atomico",
+               TPSideCaption(),exact,adapted,same,blocked,skipped,unknown,rejected,unverified,halted);
+}
 void CloseManagedPositions(bool all)
 {
    if(!TradePermissionsAllowed()){csmPanelStatus="Cierre: trading no permitido";return;}
