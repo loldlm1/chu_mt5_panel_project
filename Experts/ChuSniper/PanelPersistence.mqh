@@ -64,6 +64,7 @@ void ResetPanelOperationalState()
    panelX=12;panelY=20;panelScale=1.0;panelMinimized=false;
    savedRiskText="1";savedPointsText="250";savedRatioText="2";savedAmountText="100";
    ArrayResize(trailingPositionTickets,0);ArrayResize(favorablePrices,0);
+   ArrayResize(initialRiskCache,0);trailingNoSL=0;trailingUnknown=0;
    panelStateReady=false;panelStateFile="";lastSavedPanelRecord="";lastStateSave=0;
 }
 void LoadPanelState()

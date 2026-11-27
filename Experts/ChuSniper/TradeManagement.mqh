@@ -115,9 +115,81 @@ void CloseManagedPositions(bool all)
    int remaining=CollectManagedPositions(rows);
    csmPanelStatus=StringFormat("Neto %.2f | cierres %d | abiertas %d | incidencias %d",executed,changes,remaining,failures);
 }
+// Read opening deals from the stable position identifier, not from today's SL.
+// The opening order must be terminal; never trail a partially filled live order
+// with a distance which might change when the rest fills.
+int RecoverInitialRisk(const ulong identifier,const int direction,const double currentVolume,
+                       const double currentEntry,double &entry,double &distance)
+{
+   entry=0;distance=0;
+   if(!identifier || !HistorySelectByPosition(identifier)) return -1;
+   long orderState=0;
+   if(!HistoryOrderGetInteger(identifier,ORDER_STATE,orderState) ||
+      (orderState!=ORDER_STATE_FILLED && orderState!=ORDER_STATE_CANCELED && orderState!=ORDER_STATE_EXPIRED)) return -1;
+   double sum=0,opened=0,closed=0,initialSL=0;
+   double tick=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+   if(tick<=0) return -1;
+   for(int i=0;i<HistoryDealsTotal();i++)
+   {
+      ulong deal=HistoryDealGetTicket(i);
+      if(!deal) return -1;
+      long type=HistoryDealGetInteger(deal,DEAL_TYPE);
+      if(type!=DEAL_TYPE_BUY && type!=DEAL_TYPE_SELL) continue;
+      if((ulong)HistoryDealGetInteger(deal,DEAL_POSITION_ID)!=identifier ||
+         HistoryDealGetString(deal,DEAL_SYMBOL)!=_Symbol) return -1;
+      double volume=HistoryDealGetDouble(deal,DEAL_VOLUME);
+      if(!MathIsValidNumber(volume) || volume<=0) return -1;
+      long kind=HistoryDealGetInteger(deal,DEAL_ENTRY);
+      if(kind==DEAL_ENTRY_OUT || kind==DEAL_ENTRY_OUT_BY){closed+=volume;continue;}
+      if(kind!=DEAL_ENTRY_IN || type!=(direction>0?DEAL_TYPE_BUY:DEAL_TYPE_SELL) ||
+         (ulong)HistoryDealGetInteger(deal,DEAL_ORDER)!=identifier) return -1;
+      double price=0,sl=0;
+      if(!HistoryDealGetDouble(deal,DEAL_PRICE,price) || !HistoryDealGetDouble(deal,DEAL_SL,sl) ||
+         !MathIsValidNumber(price) || price<=0 || !MathIsValidNumber(sl) || sl<0) return -1;
+      if(opened>0 && MathAbs(sl-initialSL)>tick*1e-6) return -1;
+      initialSL=sl;opened+=volume;sum+=price*volume;
+   }
+   if(opened<=0 || MathAbs(opened-closed-currentVolume)>1e-7) return -1;
+   entry=sum/opened;
+   if(!MathIsValidNumber(entry) || MathAbs(entry-currentEntry)>tick+1e-9) return -1;
+   if(initialSL==0) return 0;
+   distance=direction*(entry-initialSL);
+   if(!MathIsValidNumber(distance) || distance<=0) return -1;
+   return 1;
+}
+int GetInitialRisk(const ulong identifier,const int direction,const double volume,
+                   const double currentEntry,double &entry,double &distance)
+{
+   int key=-1;
+   for(int i=0;i<ArraySize(initialRiskCache);i++)
+      if(initialRiskCache[i].identifier==identifier){key=i;break;}
+   ulong now=GetTickCount64();
+   if(key<0)
+   {
+      key=ArraySize(initialRiskCache);
+      ArrayResize(initialRiskCache,key+1);
+      initialRiskCache[key].identifier=identifier;
+      initialRiskCache[key].checked=0;
+      initialRiskCache[key].volume=-1;
+   }
+   // Volume changes can mean a late partial fill. Revalidate history, not SL.
+   if(MathAbs(initialRiskCache[key].volume-volume)>1e-8 ||
+      (initialRiskCache[key].state<0 && now-initialRiskCache[key].checked>=5000))
+   {
+      double origin=0,gap=0;
+      int state=RecoverInitialRisk(identifier,direction,volume,currentEntry,origin,gap);
+      initialRiskCache[key].volume=volume;initialRiskCache[key].checked=now;
+      initialRiskCache[key].entry=origin;initialRiskCache[key].distance=gap;
+      initialRiskCache[key].state=state;
+      if(state<0) PrintFormat("CSM trailing #%I64u: SL inicial no verificable",identifier);
+   }
+   entry=initialRiskCache[key].entry;distance=initialRiskCache[key].distance;
+   return initialRiskCache[key].state;
+}
 void UpdateTrailingStops()
 {
-   if(!TradePermissionsAllowed() || trailingMode!=1 || ActivationPoints<=0 || TrailPoints<=0) return;
+   trailingNoSL=0;trailingUnknown=0;
+   if(!TradePermissionsAllowed() || trailingMode!=1) return;
    MqlTick quote;
    if(!SymbolInfoTick(_Symbol,quote) || !ValidBrokerQuote(quote)) return;
    // Trailing applies to every eligible ticket independently of groupMode or tradeSide.
@@ -128,7 +200,12 @@ void UpdateTrailingStops()
       if(!IncludeOtherPositions && PositionGetInteger(POSITION_MAGIC)!=(long)Magic) continue;
       int direction=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY?1:-1;
       double market=direction>0?quote.bid:quote.ask;
-      double entry=PositionGetDouble(POSITION_PRICE_OPEN);
+      ulong identifier=(ulong)PositionGetInteger(POSITION_IDENTIFIER);
+      double volume=PositionGetDouble(POSITION_VOLUME),currentEntry=PositionGetDouble(POSITION_PRICE_OPEN);
+      double entry=0,distance=0;
+      int initial=GetInitialRisk(identifier,direction,volume,currentEntry,entry,distance);
+      if(initial==0){trailingNoSL++;continue;}
+      if(initial<0){trailingUnknown++;continue;}
       int key=ArraySize(trailingPositionTickets);
       for(int j=0;j<ArraySize(trailingPositionTickets);j++)
          if(trailingPositionTickets[j]==ticket){key=j;break;}
@@ -140,9 +217,9 @@ void UpdateTrailingStops()
          favorablePrices[key]=market;
       }
       if(direction*(market-favorablePrices[key])>0) favorablePrices[key]=market;
-      double gain=direction*(favorablePrices[key]-entry)/_Point;
-      if(gain<ActivationPoints) continue;
-      double level=favorablePrices[key]-direction*TrailPoints*_Point;
+      double gain=direction*(favorablePrices[key]-entry);
+      if(gain+_Point*1e-7<distance) continue;
+      double level=favorablePrices[key]-direction*distance;
       if(level<=0) continue;
       // No exact retreat and no adapted retreat; the fresh ticket decides.
       // A rejected/frozen server response must not produce a 250ms retry storm.

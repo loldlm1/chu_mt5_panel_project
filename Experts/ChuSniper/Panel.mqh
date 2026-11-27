@@ -133,8 +133,8 @@ void RenderPanel()
    y+=29;
    DrawPanelButton("send",x,y,444,orderPrepared?"Confirmar "+OrderTypeCaption(type):"Confirmar orden",valid?buyColor:CSM_PANEL_NAVY);
    y+=29;
-   string trailModes[]={"Apagado","Simple"};
-   DrawPanelButton("trail",x,y,444,"Trailing: "+trailModes[trailingMode],trailingMode?highlightColor:CSM_PANEL_NAVY);
+   string trailCaption=trailingMode?StringFormat("Trailing 1R | sin SL %d | desconocido %d",trailingNoSL,trailingUnknown):"Trailing: Apagado";
+   DrawPanelButton("trail",x,y,444,trailCaption,trailingMode?highlightColor:CSM_PANEL_NAVY);
    y+=29;
    PositionRow rows[];
    int count=CollectManagedPositions(rows,true);

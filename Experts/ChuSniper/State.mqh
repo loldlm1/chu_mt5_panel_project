@@ -1,7 +1,4 @@
 input ulong Magic=110629;
-input int ActivationPoints=250;
-input int TrailPoints=150;
-input int StepPoints=250; // legacy preset compatibility; unused by Simple trailing
 input bool IncludeOtherPositions=false;
 enum ENUM_CSM_PANEL_THEME { PANEL_ORIGINAL=0, PANEL_PANDORA=1 };
 input ENUM_CSM_PANEL_THEME PanelTheme=PANEL_ORIGINAL;
@@ -15,6 +12,16 @@ bool editingStopPoints=false;
 ulong trailingPositionTickets[];
 double favorablePrices[];
 ulong trailingRetryAfter[]; // transient server-rejection cooldown, never persisted
+// 1 = reliable original distance, 0 = opened without SL, -1 = unavailable.
+// The authoritative durable record is opening deal/order history, never current SL.
+struct InitialRiskRecord
+{
+   ulong identifier,checked;
+   double volume,entry,distance;
+   int state;
+};
+InitialRiskRecord initialRiskCache[];
+int trailingNoSL=0,trailingUnknown=0;
 #define CSM_PANEL_NAVY C'20,30,43'
 color textColor=C'225,232,241', highlightColor=C'255,215,49', infoColor=C'70,169,255', sellColor=C'255,100,100', buyColor=C'42,192,179';
 
