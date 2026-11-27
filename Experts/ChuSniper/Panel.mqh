@@ -1,4 +1,4 @@
-// Separate fixed projection rows double as unambiguous drag handles.
+// Reserve a readable fallback row for each overlay on crowded charts.
 int PanelBaseHeight(){return (panelMinimized?126:417)+CSM_QUICK_EXTRA+(breakEvenShown?29:0)+(takeProfitShown?29:0);}
 void ClampPanelGeometry()
 {
@@ -28,8 +28,58 @@ void RefreshQuickQuotes()
    bool buyChanged=UpdatePanelCaption("quickBuy",QuickQuoteCaption(true,quote,available));
    if(sellChanged || buyChanged) ChartRedraw();
 }
-// The two captions cannot overlap, even when both price lines coincide.
-// Clicking and dragging the caption itself selects its projection explicitly.
+// Prefer the v0.16 chart-side caption immediately above the price line.
+// If space is constrained, the dedicated panel fallback keeps each drag handle accessible.
+struct ProjectionRect {int x,y,w,h;};
+bool ProjectionRectsOverlap(const ProjectionRect &a,const ProjectionRect &b)
+{
+   return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y;
+}
+void ProjectionFallback(const bool isTP,ProjectionRect &r)
+{
+   int y=(panelMinimized?123:413)+CSM_QUICK_EXTRA+(isTP && breakEvenShown?29:0);
+   r.x=panelX+(int)MathRound(8*panelDrawScale);
+   r.y=panelY+(int)MathRound(y*panelDrawScale);
+   r.w=(int)MathMax(1,MathRound(444*panelDrawScale));
+   r.h=(int)MathMax(1,MathRound(25*panelDrawScale));
+}
+bool PlaceChartProjection(const double level,const int cw,const int ch,const ProjectionRect &panel,
+                          const ProjectionRect &other,const bool avoidOther,ProjectionRect &r)
+{
+   int px=0,py=0;
+   if(cw<=0 || ch<25 || !ChartTimePriceToXY(0,0,iTime(_Symbol,_Period,0),level,px,py) ||
+      py<0 || py>=ch) return false;
+   r.w=(int)MathMin(405,cw);r.h=25;
+   int right=panel.x+panel.w+8,left=panel.x-r.w-8;
+   int xs[3];xs[0]=right;xs[1]=left;xs[2]=(int)MathMax(0,MathMin(panel.x,cw-r.w));
+   // Search above first, then a nearby lower slot; only accept a fully visible
+   // rectangle that touches neither the panel nor the other caption.
+   for(int step=0;step<5;step++)
+   {
+      int ys[2];ys[0]=py-27-step*29;ys[1]=py+4+step*29;
+      for(int j=0;j<2;j++)
+         for(int k=0;k<3;k++)
+         {
+            r.x=xs[k];r.y=ys[j];
+            if(r.x<0 || r.y<0 || r.x+r.w>cw || r.y+r.h>ch) continue;
+            if(ProjectionRectsOverlap(r,panel) || (avoidOther && ProjectionRectsOverlap(r,other))) continue;
+            return true;
+         }
+   }
+   return false;
+}
+void ManagementProjectionRects(ProjectionRect &be,ProjectionRect &tp)
+{
+   int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS),ch=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0);
+   ProjectionRect panel;
+   panel.x=panelX;panel.y=panelY;panel.w=(int)MathRound(460*panelDrawScale);
+   panel.h=(int)MathRound(PanelBaseHeight()*panelDrawScale);
+   ProjectionFallback(false,be);ProjectionFallback(true,tp);
+   ProjectionRect candidate;
+   if(breakEvenShown && PlaceChartProjection(breakEvenPrice,cw,ch,panel,tp,false,candidate)) be=candidate;
+   if(takeProfitShown && PlaceChartProjection(takeProfitPrice,cw,ch,panel,be,breakEvenShown,candidate)) tp=candidate;
+}
+// Clicking and dragging a caption selects its own projection, even at equal prices.
 void RenderManagementProjection(PositionRow &rows[],const bool isTP,const double floating)
 {
    int direction=isTP?takeProfitSide:breakEvenSide;
@@ -40,13 +90,13 @@ void RenderManagementProjection(PositionRow &rows[],const bool isTP,const double
    string preview=at==EMPTY_VALUE?tag+" "+side+": estimacion no disponible":
       StringFormat("%s %s proy. %+.2f %s (%+.2f%%) | Retroceso %.2f",tag,side,at,
                    AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
-   int y=(panelMinimized?123:413)+CSM_QUICK_EXTRA+(isTP && breakEvenShown?29:0);
-   color ink=at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?infoColor:sellColor;
+   ProjectionRect be,tp,r;
+   ManagementProjectionRects(be,tp);
+   if(isTP) r=tp;else r=be;
+   color ink=at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?(isTP?infoColor:highlightColor):sellColor;
    string key=isTP?"tpinfo":"beinfo";
-   DrawPanelObjectRaw(key,OBJ_BUTTON,panelX+(int)MathRound(8*panelDrawScale),
-      panelY+(int)MathRound(y*panelDrawScale),(int)MathMax(1,MathRound(444*panelDrawScale)),
-      (int)MathMax(1,MathRound(25*panelDrawScale)),preview,PanelAccent(CSM_PANEL_NAVY),ink,
-      (int)MathMax(6,MathRound(10*panelDrawScale)));
+   DrawPanelObjectRaw(key,OBJ_BUTTON,r.x,r.y,r.w,r.h,preview,PanelAccent(CSM_PANEL_NAVY),ink,
+      (int)MathMax(6,MathMin(10,MathRound(r.h*0.4))));
    ObjectSetInteger(0,PanelObjectName(key),OBJPROP_STATE,false);
 }
 void RefreshManagementProjectionDuringDrag(const bool force=false)
@@ -62,8 +112,18 @@ void RefreshManagementProjectionDuringDrag(const bool force=false)
    double floating=0;
    for(int i=0;i<count;i++) floating+=rows[i].floatPL;
    RenderManagementProjection(rows,isTP,floating);
-   if(breakEvenShown && takeProfitShown && breakEvenSide==takeProfitSide)
-      RenderManagementProjection(rows,!isTP,floating);
+   if(breakEvenShown && takeProfitShown)
+   {
+      if(breakEvenSide==takeProfitSide) RenderManagementProjection(rows,!isTP,floating);
+      else
+      {
+         PositionRow otherRows[];
+         int otherCount=CollectManagedPositionsForSide(otherRows,isTP?breakEvenSide:takeProfitSide,true);
+         double otherFloating=0;
+         for(int i=0;i<otherCount;i++) otherFloating+=otherRows[i].floatPL;
+         RenderManagementProjection(otherRows,!isTP,otherFloating);
+      }
+   }
    ChartRedraw();
 }
 void RenderPanel()
@@ -190,12 +250,12 @@ void RenderPanel()
       double tpFloating=0;
       for(int i=0;i<tpCount;i++) tpFloating+=tpRows[i].floatPL;
       bool fresh=PriceLevelSlot("ManagedTP")<0;
-      DrawPriceLevel("ManagedTP",takeProfitPrice,clrAqua,true);
+      DrawPriceLevel("ManagedTP",takeProfitPrice,infoColor,true);
       if(fresh)
       {
          ObjectSetString(0,PanelObjectName("ManagedTP"),OBJPROP_TOOLTIP,"TP "+TPSideCaption()+" proyectado; arrastra linea o resumen");
-         ObjectSetInteger(0,PanelObjectName("ManagedTP"),OBJPROP_WIDTH,1);
-         ObjectSetInteger(0,PanelObjectName("ManagedTP"),OBJPROP_STYLE,STYLE_DASH);
+         ObjectSetInteger(0,PanelObjectName("ManagedTP"),OBJPROP_WIDTH,3);
+         ObjectSetInteger(0,PanelObjectName("ManagedTP"),OBJPROP_STYLE,STYLE_SOLID);
       }
       RenderManagementProjection(tpRows,true,tpFloating);
    }
