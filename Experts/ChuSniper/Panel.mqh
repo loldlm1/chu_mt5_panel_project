@@ -80,6 +80,54 @@ void ManagementProjectionRects(ProjectionRect &be,ProjectionRect &tp)
    if(takeProfitShown && PlaceChartProjection(takeProfitPrice,cw,ch,panel,be,breakEvenShown,candidate)) tp=candidate;
 }
 // Clicking and dragging a caption selects its own projection, even at equal prices.
+ManagementPreview bePreview,tpPreview;
+string ManagementApplyCaption(const ManagementPreview &v,const bool isTP)
+{
+   string tag=isTP?"TP":"BE";
+   if(!v.active) return "Aplicar "+tag;
+   if(v.total>0 && v.exact==v.total) return tag+" aplicado";
+   if(v.total>0 && v.exact+v.adapted==v.total) return tag+" adaptado";
+   if(v.canApply) return "Aplicar "+tag;
+   if(!v.known || v.total==0) return tag+" no disp.";
+   if(isTP && (v.requested<=0 || (v.subset!=EMPTY_VALUE && v.subset<=0))) return tag+" no rentable";
+   if(v.exact+v.adapted>0) return tag+" parcial";
+   return tag+" bloqueado";
+}
+color ManagementApplyColor(const ManagementPreview &v,const bool isTP)
+{
+   if(v.active && v.total>0 && v.exact+v.adapted==v.total) return C'39,86,66';
+   if(v.canApply) return isTP?infoColor:highlightColor;
+   return CSM_PANEL_NAVY;
+}
+string ManagementPreviewDetail(const ManagementPreview &v)
+{
+   return StringFormat("Exactos %d | Adaptados %d | Validas %d/%d | Cambios %d | Freeze %d | Otros %d | Desconocidos %d",
+                       v.exact,v.adapted,v.valid,v.total,v.changes,v.frozen,v.invalid,v.unknown);
+}
+void DrawManagementApply(const bool isTP,const int x,const int y,const ManagementPreview &v)
+{
+   string key=isTP?"applyTP":"apply";
+   DrawPanelButton(key,x,y,106,ManagementApplyCaption(v,isTP),ManagementApplyColor(v,isTP));
+   ObjectSetString(0,PanelObjectName(key),OBJPROP_TOOLTIP,ManagementPreviewDetail(v));
+   ObjectSetInteger(0,PanelObjectName(key),OBJPROP_STATE,false);
+}
+void ReadManagementPreview(PositionRow &rows[],const bool isTP,ManagementPreview &v)
+{
+   BrokerRules b;MqlTick q={};
+   bool rulesKnown=ReadBrokerRules(b);
+   SymbolInfoTick(_Symbol,q);
+   BuildManagementPreview(rows,isTP?takeProfitShown:breakEvenShown,isTP,
+                          isTP?takeProfitSide:breakEvenSide,isTP?takeProfitPrice:breakEvenPrice,
+                          q,b,rulesKnown,TradePermissionsAllowed(),v);
+}
+void RefreshManagementApply(const bool isTP,PositionRow &rows[])
+{
+   // Existing expanded row coordinates; hidden by DrawPanelObject in compact mode.
+   int y=(isTP?326:297)+CSM_QUICK_EXTRA;
+   if(isTP){ReadManagementPreview(rows,true,tpPreview);DrawManagementApply(true,120,y,tpPreview);}
+   else {ReadManagementPreview(rows,false,bePreview);DrawManagementApply(false,120,y,bePreview);}
+}
+bool ManagementApplyEnabled(const bool isTP){return isTP?tpPreview.canApply:bePreview.canApply;}
 void RenderManagementProjection(PositionRow &rows[],const bool isTP,const double floating)
 {
    int direction=isTP?takeProfitSide:breakEvenSide;
@@ -112,9 +160,14 @@ void RefreshManagementProjectionDuringDrag(const bool force=false)
    double floating=0;
    for(int i=0;i<count;i++) floating+=rows[i].floatPL;
    RenderManagementProjection(rows,isTP,floating);
+   RefreshManagementApply(isTP,rows);
    if(breakEvenShown && takeProfitShown)
    {
-      if(breakEvenSide==takeProfitSide) RenderManagementProjection(rows,!isTP,floating);
+      if(breakEvenSide==takeProfitSide)
+      {
+         RenderManagementProjection(rows,!isTP,floating);
+         RefreshManagementApply(!isTP,rows);
+      }
       else
       {
          PositionRow otherRows[];
@@ -122,6 +175,7 @@ void RefreshManagementProjectionDuringDrag(const bool force=false)
          double otherFloating=0;
          for(int i=0;i<otherCount;i++) otherFloating+=otherRows[i].floatPL;
          RenderManagementProjection(otherRows,!isTP,otherFloating);
+         RefreshManagementApply(!isTP,otherRows);
       }
    }
    ChartRedraw();
@@ -207,19 +261,6 @@ void RenderPanel()
    for(int i=0;i<count;i++) floating+=rows[i].floatPL;
    DrawPanelButton("scopeinfo",x,y,444,StringFormat("%s %s | %d posiciones | Flotante %+.2f",_Symbol,tradeSide>0?"Compras":"Ventas",count,floating));
    y+=29;
-   DrawPanelButton("be",x,y,108,breakEvenShown?"BE "+BESideCaption():"Break-even",highlightColor);
-   DrawPanelButton("apply",x+112,y,106,"Aplicar BE",breakEvenShown?highlightColor:CSM_PANEL_NAVY);
-   DrawPanelButton("units",x+222,y,108,percentTargetMode?"% flotante":"Dinero",highlightColor);
-   // amount is drawn above.
-   y+=29;
-   DrawPanelButton("tp",x,y,218,takeProfitShown?"TP "+TPSideCaption():"Take profit",takeProfitShown?clrDeepSkyBlue:CSM_PANEL_NAVY);
-   DrawPanelButton("applyTP",x+222,y,222,"Aplicar TP",takeProfitShown?clrDeepSkyBlue:CSM_PANEL_NAVY);
-   y+=29;
-   DrawPanelButton("realize",x,y,218,"Realizar ganancia",infoColor);
-   DrawPanelButton("close",x+222,y,222,closeConfirmationDeadline>GetTickCount64()?"Confirmar cerrar todo":"Cerrar todo",sellColor);
-   y+=29;
-   DrawPanelButton("status",x,y,panelMinimized?444:415,csmPanelStatus);
-   DrawPanelButton("resize",428,y,24,"//");
    PositionRow beRows[],tpRows[];
    int beCount=0,tpCount=0;
    if(breakEvenShown)
@@ -235,6 +276,21 @@ void RenderPanel()
       else tpCount=CollectManagedPositionsForSide(tpRows,takeProfitSide,true);
       if(tpCount==0) takeProfitShown=false;
    }
+   ReadManagementPreview(beRows,false,bePreview);
+   ReadManagementPreview(tpRows,true,tpPreview);
+   DrawPanelButton("be",x,y,108,breakEvenShown?"X BE "+BESideCaption():"Break-even",breakEvenShown?highlightColor:CSM_PANEL_NAVY);
+   DrawManagementApply(false,x+112,y,bePreview);
+   DrawPanelButton("units",x+222,y,108,percentTargetMode?"% flotante":"Dinero",highlightColor);
+   // amount is drawn above.
+   y+=29;
+   DrawPanelButton("tp",x,y,108,takeProfitShown?"X TP "+TPSideCaption():"Take profit",takeProfitShown?infoColor:CSM_PANEL_NAVY);
+   DrawManagementApply(true,x+112,y,tpPreview);
+   y+=29;
+   DrawPanelButton("realize",x,y,218,"Realizar ganancia",infoColor);
+   DrawPanelButton("close",x+222,y,222,closeConfirmationDeadline>GetTickCount64()?"Confirmar cerrar todo":"Cerrar todo",sellColor);
+   y+=29;
+   DrawPanelButton("status",x,y,panelMinimized?444:415,csmPanelStatus);
+   DrawPanelButton("resize",428,y,24,"//");
    if(breakEvenShown)
    {
       double beFloating=0;

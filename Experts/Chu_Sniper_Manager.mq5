@@ -236,11 +236,11 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       else if(k=="send") SubmitOrder();
       else if(k=="apply")
       {
-         if(PanelHit(k,(int)lp,(int)dp)) ApplyBreakEvenStops();
+         if(PanelHit(k,(int)lp,(int)dp) && ManagementApplyEnabled(false)) ApplyBreakEvenStops();
       }
       else if(k=="applyTP")
       {
-         if(PanelHit(k,(int)lp,(int)dp)) ApplyTakeProfitTargets();
+         if(PanelHit(k,(int)lp,(int)dp) && ManagementApplyEnabled(true)) ApplyTakeProfitTargets();
       }
       else if(k=="realize") CloseManagedPositions(false);
       else if(closeConfirmationDeadline>GetTickCount64()){closeConfirmationDeadline=0;CloseManagedPositions(true);}

@@ -197,7 +197,7 @@ bool CandidateStopValid(const int dir,const double market,const double sl,const 
 // 0: no change possible, 1: exact, 2: adapted, 3: already equal, 4: frozen.
 int ResolvePositionStop(const int dir,const MqlTick &q,const BrokerRules &b,
                         const double wanted,const double oldSL,const double oldTP,
-                        const bool allowExactRetreat,double &level)
+                        const bool allowExactRetreat,double &level,const bool recognizeAdaptedEqual=false)
 {
    if(!ValidBrokerQuote(q) || !MathIsValidNumber(wanted) || wanted<=0) return 0;
    double market=dir>0?q.bid:q.ask;
@@ -213,6 +213,9 @@ int ResolvePositionStop(const int dir,const MqlTick &q,const BrokerRules &b,
       level=BrokerGrid(dir>0?MathMin(wanted,market-gap):MathMax(wanted,market+gap),b,-dir);
       if(!CandidateStopValid(dir,market,level,b)) return 0;
    }
+   // Manual BE may recognize an already-matched adaptive target without
+   // sending a request. Trailing keeps its original improvement-only result.
+   if(recognizeAdaptedEqual && !exact && oldSL>0 && !PriceChanged(oldSL,level,b)) return 3;
    if(oldSL>0 && (!exact || !allowExactRetreat) && dir*(level-oldSL)<=b.tick*1e-6) return 0;
    return exact?1:2;
 }

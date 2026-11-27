@@ -11,6 +11,14 @@ bool BEPriceCrossed(const int direction,const MqlTick &q,const double wanted)
    return ValidBrokerQuote(q) && MathIsValidNumber(wanted) && wanted>0 &&
           (direction>0?q.bid>wanted:q.ask<wanted);
 }
+// Shared manual-BE decision for the read-only panel and fresh Apply path.
+int ResolveManualBE(const int direction,const MqlTick &q,const BrokerRules &b,
+                    const double wanted,const double oldSL,const double oldTP,double &level)
+{
+   if(!BEPriceCrossed(direction,q,wanted)) return 5;
+   if((b.orderModes&SYMBOL_ORDER_SL)==0) return 0;
+   return ResolvePositionStop(direction,q,b,wanted,oldSL,oldTP,true,level,true);
+}
 // Outcome 5: requested manual BE has not been crossed.
 int ApplyResolvedStop(const ulong ticket,const double wanted,const bool allowExactRetreat,
                       const int expectedDirection,const bool requireCrossedBE=false)
@@ -21,10 +29,10 @@ int ApplyResolvedStop(const ulong ticket,const double wanted,const bool allowExa
    double oldSL=PositionGetDouble(POSITION_SL),oldTP=PositionGetDouble(POSITION_TP);
    BrokerRules b;MqlTick q;
    if(!ReadBrokerRules(b) || !SymbolInfoTick(_Symbol,q) || !ValidBrokerQuote(q)) return -1;
-   if(requireCrossedBE && !BEPriceCrossed(dir,q,wanted)) return 5;
    if((b.orderModes&SYMBOL_ORDER_SL)==0) return 0;
    double level=0;
-   int decision=ResolvePositionStop(dir,q,b,wanted,oldSL,oldTP,allowExactRetreat,level);
+   int decision=requireCrossedBE?ResolveManualBE(dir,q,b,wanted,oldSL,oldTP,level):
+      ResolvePositionStop(dir,q,b,wanted,oldSL,oldTP,allowExactRetreat,level);
    if(decision!=1 && decision!=2) return decision;
    if(!SelectManagedTicket(ticket) ||
       PriceChanged(PositionGetDouble(POSITION_SL),oldSL,b) ||
@@ -80,17 +88,23 @@ bool RefreshTPRow(PositionRow &row,const int direction)
    row.swap=PositionGetDouble(POSITION_SWAP);
    return row.costKnown && MathIsValidNumber(row.swap);
 }
-int ReadTPPlan(PositionRow &row,const int direction,const double wanted,TPApplyPlan &plan)
+// Pure candidate calculation shared with the live read-only panel snapshot.
+int EvaluateTPRow(const PositionRow &row,const int direction,const double wanted,
+                  const MqlTick &q,const BrokerRules &b,TPApplyPlan &plan)
 {
-   if(!TradePermissionsAllowed() || !RefreshTPRow(row,direction)) return -1;
-   BrokerRules b;MqlTick q;
-   if(!ReadBrokerRules(b) || !SymbolInfoTick(_Symbol,q) || !ValidBrokerQuote(q)) return -1;
    plan.sl=row.stop;plan.oldTP=row.target;
    int decision=ResolvePositionTarget(direction,q,b,wanted,row.stop,row.target,plan.level);
    if(decision<1 || decision>3) return decision;
    plan.net=PositionProfitAtLevel(row,plan.level,direction,true);
    if(plan.net==EMPTY_VALUE) return -1;
    return decision;
+}
+int ReadTPPlan(PositionRow &row,const int direction,const double wanted,TPApplyPlan &plan)
+{
+   if(!TradePermissionsAllowed() || !RefreshTPRow(row,direction)) return -1;
+   BrokerRules b;MqlTick q;
+   if(!ReadBrokerRules(b) || !SymbolInfoTick(_Symbol,q) || !ValidBrokerQuote(q)) return -1;
+   return EvaluateTPRow(row,direction,wanted,q,b,plan);
 }
 void ExcludeTPPlan(TPApplyPlan &plan,const int decision,int &blocked,int &skipped,int &unknown)
 {
@@ -124,6 +138,59 @@ bool RevalidateTPBasket(PositionRow &rows[],TPApplyPlan &plans[],const int direc
       total+=plans[i].net;participants++;
    }
    return participants>0 && MathIsValidNumber(total) && total>0;
+}
+// Read-only view of the current scope. Exact coverage is distinct from
+// broker-valid participation (an equal but frozen ticket cannot fund a TP plan).
+struct ManagementPreview
+{
+   int total,exact,adapted,valid,changes,frozen,invalid,unknown;
+   double subset,requested;
+   bool active,known,permitted,canApply;
+};
+void BuildManagementPreview(PositionRow &rows[],const bool active,const bool isTP,
+                            const int direction,const double wanted,const MqlTick &q,
+                            const BrokerRules &b,const bool rulesKnown,const bool permitted,
+                            ManagementPreview &view)
+{
+   ZeroMemory(view);
+   view.active=active;view.total=active?ArraySize(rows):0;
+   view.subset=EMPTY_VALUE;view.requested=EMPTY_VALUE;
+   view.permitted=permitted;
+   if(!active || view.total==0 || !MathIsValidNumber(wanted) || wanted<=0 || !rulesKnown) return;
+   bool quoteKnown=ValidBrokerQuote(q);
+   view.requested=isTP?ProfitAtPriceLevel(rows,wanted,direction,true):0;
+   double sum=0;
+   bool unknownProfit=false;
+   for(int i=0;i<view.total;i++)
+   {
+      double old=isTP?rows[i].target:rows[i].stop;
+      bool exact=old>0 && OnBrokerGrid(old,b) && !PriceChanged(old,wanted,b);
+      if(exact) view.exact++;
+      if(!quoteKnown || !permitted){view.unknown++;continue;}
+      double level=0,net=0;
+      int decision=0;
+      if(isTP)
+      {
+         TPApplyPlan plan;
+         decision=EvaluateTPRow(rows[i],direction,wanted,q,b,plan);
+         if(decision>=1 && decision<=3){level=plan.level;net=plan.net;}
+      }
+      else decision=ResolveManualBE(direction,q,b,wanted,rows[i].stop,rows[i].target,level);
+      if(decision>=1 && decision<=3)
+      {
+         view.valid++;
+         if(decision==3 && !exact) view.adapted++;
+         if(decision==1 || decision==2) view.changes++;
+         if(isTP) sum+=net;
+      }
+      else if(decision==4) view.frozen++;
+      else if(decision<0){view.unknown++;unknownProfit=true;}
+      else view.invalid++;
+   }
+   view.known=quoteKnown && permitted && (!isTP || (view.requested!=EMPTY_VALUE && !unknownProfit && MathIsValidNumber(sum)));
+   if(isTP && view.known && view.valid>0) view.subset=sum;
+   view.canApply=view.known && view.changes>0 &&
+                 (!isTP || (view.requested>0 && view.subset!=EMPTY_VALUE && view.subset>0));
 }
 void ApplyTakeProfitTargets()
 {
