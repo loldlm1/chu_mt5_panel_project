@@ -121,8 +121,13 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(k=="buy" || k=="sell")
    {
       int direction=k=="buy"?1:-1;
-      if(breakEvenShown && breakEvenSide!=direction) breakEvenShown=false;
-      PrepareOrder(direction);
+      if(!PanelHit(k,(int)lp,(int)dp)) return;
+      if(orderPrepared && tradeSide==direction) CancelOrderDraft();
+      else
+      {
+         if(breakEvenShown && breakEvenSide!=direction) breakEvenShown=false;
+         PrepareOrder(direction);
+      }
    }
    if(k=="scope"){groupMode=!groupMode;breakEvenShown=false;}
    if(k=="mode")

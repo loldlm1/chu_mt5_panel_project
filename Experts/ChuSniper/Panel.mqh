@@ -92,8 +92,11 @@ void RenderPanel()
    string riskCaption=riskMode==0?"% cuenta":riskMode==1?AccountInfoString(ACCOUNT_CURRENCY):"lotes";
    DrawPanelButton("quickInfo",x,y,444,StringFormat("Rapido: %s %s | SL %s pts | R:B %s",PanelNumberText(PanelInputNumber("riskval")),riskCaption,PanelNumberText(stopDistancePoints),PanelNumberText(rewardRiskRatio)));
    y+=29;
-   DrawPanelButton("buy",x,y,105,"Comprar",tradeSide>0?buyColor:CSM_PANEL_NAVY);
-   DrawPanelButton("sell",x+110,y,105,"Vender",tradeSide<0?sellColor:CSM_PANEL_NAVY);
+   // Direction is retained when the draft is canceled. Active drafts use side ink.
+   DrawPanelButton("buy",x,y,105,tradeSide>0?(orderPrepared?"X Comprar":"Comprar *"):"Comprar",
+                   tradeSide>0?(orderPrepared?buyColor:highlightColor):CSM_PANEL_NAVY);
+   DrawPanelButton("sell",x+110,y,105,tradeSide<0?(orderPrepared?"X Vender":"Vender *"):"Vender",
+                   tradeSide<0?(orderPrepared?sellColor:highlightColor):CSM_PANEL_NAVY);
    DrawPanelButton("scope",x+220,y,110,groupMode?"Grupo":"Individual",highlightColor);
    DrawPanelButton("mode",x+335,y,109,pendingOrderMode?"Pendiente":"Mercado",highlightColor);
    y+=29;

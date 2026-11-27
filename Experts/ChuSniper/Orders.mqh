@@ -170,6 +170,14 @@ bool TradeResultCompleted()
    uint code=trade.ResultRetcode();
    return code==TRADE_RETCODE_DONE || code==TRADE_RETCODE_DONE_PARTIAL || code==TRADE_RETCODE_NO_CHANGES;
 }
+// Cancel only an unsubmitted draft; never touch broker orders or management projections.
+void CancelOrderDraft()
+{
+   orderPrepared=false;fixedStopMode=false;
+   csmPlannedEntry=0;plannedStopLoss=0;plannedTakeProfit=0;
+   ForgetPriceLevel("Entrada");ForgetPriceLevel("Stop loss");ForgetPriceLevel("Take profit");
+   csmPanelStatus="Proyeccion cancelada";
+}
 void PrepareOrder(int dir)
 {
    MqlTick q;
