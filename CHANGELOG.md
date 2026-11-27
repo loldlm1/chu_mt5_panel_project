@@ -11,6 +11,7 @@ Story #34; PR #40; tickets #35–#39.
 - Explicit zero-SL mode, fixed/minimum lot, no fabricated maximum risk, optional manual TP, preserved optional pending levels and verification.
 - CSM170 migration from CSM140/160; removed input/preset and broker-comment limitations documented. Demo/Real hedging retained.
 - QA amendment A (#41–#43): restore thick BE/TP chart overlays and live labels, nonoverlapping independent drag handles; compact TP row, read-only valid/covered counts and effective subset net P/L; broker-aware Apply states without duplicate sends. Same PR/version.
+- QA footer fix: reserve space only for captions actually rendered in the panel; keep external overlays and compact fallback rows without blank gaps.
 - Pending MetaEditor, independent native Standards/Spec review and focused owner Demo QA.
 
 ## [0.16.0] — 2026-11-25

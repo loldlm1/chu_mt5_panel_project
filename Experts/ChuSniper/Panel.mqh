@@ -1,16 +1,13 @@
-// Reserve a readable fallback row for each overlay on crowded charts.
-int PanelBaseHeight(){return (panelMinimized?126:417)+CSM_QUICK_EXTRA+(breakEvenShown?29:0)+(takeProfitShown?29:0);}
-void ClampPanelGeometry()
+// Footer grows only for captions actually placed inside the panel.
+struct ProjectionRect {int x,y,w,h;};
+ProjectionRect beProjectionRect,tpProjectionRect;
+int projectionFallbackMask=0;
+int PanelHeightForFallback(const int mask)
 {
-   int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS);
-   int ch=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0);
-   panelScale=MathMax(0.65,MathMin(2.0,panelScale));
-   panelDrawScale=panelScale;
-   if(cw>0 && ch>0)
-      panelDrawScale=MathMax(0.01,MathMin(panelScale,MathMin((double)cw/460,(double)ch/PanelBaseHeight())));
-   panelX=(int)MathMax(0,MathMin(panelX,cw>0?MathMax(0,cw-460*panelDrawScale):panelX));
-   panelY=(int)MathMax(0,MathMin(panelY,ch>0?MathMax(0,ch-PanelBaseHeight()*panelDrawScale):panelY));
+   return (panelMinimized?126:417)+CSM_QUICK_EXTRA+
+          ((mask&1)!=0?29:0)+((mask&2)!=0?29:0);
 }
+int PanelBaseHeight(){return PanelHeightForFallback(projectionFallbackMask);}
 string QuickQuoteCaption(const bool buy,const MqlTick &quote,const bool available)
 {
    string side=buy?"BUY":"SELL";
@@ -30,18 +27,17 @@ void RefreshQuickQuotes()
 }
 // Prefer the v0.16 chart-side caption immediately above the price line.
 // If space is constrained, the dedicated panel fallback keeps each drag handle accessible.
-struct ProjectionRect {int x,y,w,h;};
 bool ProjectionRectsOverlap(const ProjectionRect &a,const ProjectionRect &b)
 {
    return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y;
 }
-void ProjectionFallback(const bool isTP,ProjectionRect &r)
+void ProjectionFallback(const int row,const ProjectionRect &panel,const double scale,ProjectionRect &r)
 {
-   int y=(panelMinimized?123:413)+CSM_QUICK_EXTRA+(isTP && breakEvenShown?29:0);
-   r.x=panelX+(int)MathRound(8*panelDrawScale);
-   r.y=panelY+(int)MathRound(y*panelDrawScale);
-   r.w=(int)MathMax(1,MathRound(444*panelDrawScale));
-   r.h=(int)MathMax(1,MathRound(25*panelDrawScale));
+   int y=(panelMinimized?123:413)+CSM_QUICK_EXTRA+row*29;
+   r.x=panel.x+(int)MathRound(8*scale);
+   r.y=panel.y+(int)MathRound(y*scale);
+   r.w=(int)MathMax(1,MathRound(444*scale));
+   r.h=(int)MathMax(1,MathRound(25*scale));
 }
 bool PlaceChartProjection(const double level,const int cw,const int ch,const ProjectionRect &panel,
                           const ProjectionRect &other,const bool avoidOther,ProjectionRect &r)
@@ -68,16 +64,38 @@ bool PlaceChartProjection(const double level,const int cw,const int ch,const Pro
    }
    return false;
 }
-void ManagementProjectionRects(ProjectionRect &be,ProjectionRect &tp)
+// Try the smallest footer first. Each candidate has its final panel geometry,
+// so external captions never overlap a subsequently expanded background.
+// A TP-only fallback occupies row zero even when BE floats outside.
+void ClampPanelGeometry()
 {
    int cw=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS),ch=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0);
-   ProjectionRect panel;
-   panel.x=panelX;panel.y=panelY;panel.w=(int)MathRound(460*panelDrawScale);
-   panel.h=(int)MathRound(PanelBaseHeight()*panelDrawScale);
-   ProjectionFallback(false,be);ProjectionFallback(true,tp);
-   ProjectionRect candidate;
-   if(breakEvenShown && PlaceChartProjection(breakEvenPrice,cw,ch,panel,tp,false,candidate)) be=candidate;
-   if(takeProfitShown && PlaceChartProjection(takeProfitPrice,cw,ch,panel,be,breakEvenShown,candidate)) tp=candidate;
+   panelScale=MathMax(0.65,MathMin(2.0,panelScale));
+   int active=(breakEvenShown?1:0)|(takeProfitShown?2:0);
+   for(int mask=0;mask<=3;mask++)
+   {
+      if((mask&active)!=mask) continue;
+      int height=PanelHeightForFallback(mask);
+      double scale=panelScale;
+      if(cw>0 && ch>0)
+         scale=MathMax(0.01,MathMin(scale,MathMin((double)cw/460,(double)ch/height)));
+      ProjectionRect panel,be,tp;
+      ZeroMemory(be);ZeroMemory(tp);
+      panel.w=(int)MathRound(460*scale);panel.h=(int)MathRound(height*scale);
+      panel.x=(int)MathMax(0,MathMin(panelX,cw>0?MathMax(0,cw-panel.w):panelX));
+      panel.y=(int)MathMax(0,MathMin(panelY,ch>0?MathMax(0,ch-panel.h):panelY));
+      bool beInside=(mask&1)!=0,tpInside=(mask&2)!=0;
+      if(beInside) ProjectionFallback(0,panel,scale,be);
+      if(tpInside) ProjectionFallback(beInside?1:0,panel,scale,tp);
+      if(breakEvenShown && !beInside &&
+         !PlaceChartProjection(breakEvenPrice,cw,ch,panel,tp,tpInside,be)) continue;
+      if(takeProfitShown && !tpInside &&
+         !PlaceChartProjection(takeProfitPrice,cw,ch,panel,be,breakEvenShown,tp)) continue;
+      projectionFallbackMask=mask;
+      panelDrawScale=scale;panelX=panel.x;panelY=panel.y;
+      beProjectionRect=be;tpProjectionRect=tp;
+      return;
+   }
 }
 // Clicking and dragging a caption selects its own projection, even at equal prices.
 ManagementPreview bePreview,tpPreview;
@@ -184,9 +202,8 @@ void RenderManagementProjection(PositionRow &rows[],const bool isTP,const double
    string preview=at==EMPTY_VALUE?tag+" "+side+": estimacion no disponible":
       StringFormat("%s %s proy. %+.2f %s (%+.2f%%) | Retroceso %.2f",tag,side,at,
                    AccountInfoString(ACCOUNT_CURRENCY),bal>0?at*100/bal:0,MathMax(0,floating-at));
-   ProjectionRect be,tp,r;
-   ManagementProjectionRects(be,tp);
-   if(isTP) r=tp;else r=be;
+   ProjectionRect r;
+   if(isTP) r=tpProjectionRect;else r=beProjectionRect;
    color ink=at==EMPTY_VALUE||MathAbs(at)<0.005?clrSilver:at>0?(isTP?infoColor:highlightColor):sellColor;
    string key=isTP?"tpinfo":"beinfo";
    DrawPanelObjectRaw(key,OBJ_BUTTON,r.x,r.y,r.w,r.h,preview,PanelAccent(CSM_PANEL_NAVY),ink,
@@ -201,6 +218,18 @@ void RefreshManagementProjectionDuringDrag(const bool force=false)
    ulong now=GetTickCount64(),last=isTP?lastTPProjectionRefresh:lastBEProjectionRefresh;
    if(!force && now-last<100) return;
    if(isTP) lastTPProjectionRefresh=now;else lastBEProjectionRefresh=now;
+   // Keep the drag refresh bounded. A rare geometry change that moves or
+   // rescales the panel requires rebuilding its existing controls once.
+   int oldMask=projectionFallbackMask,oldX=panelX,oldY=panelY;
+   double oldScale=panelDrawScale;
+   ClampPanelGeometry();
+   if(oldX!=panelX || oldY!=panelY || MathAbs(oldScale-panelDrawScale)>1e-10)
+   {
+      RenderPanel();
+      return;
+   }
+   if(oldMask!=projectionFallbackMask)
+      DrawPanelObject("bg",OBJ_RECTANGLE_LABEL,0,0,460,PanelBaseHeight(),"",PanelBackground(),PanelBorder());
    PositionRow rows[];
    int count=CollectManagedPositionsForSide(rows,isTP?takeProfitSide:breakEvenSide,true);
    double floating=0;
@@ -228,6 +257,25 @@ void RefreshManagementProjectionDuringDrag(const bool force=false)
 }
 void RenderPanel()
 {
+   PositionRow rows[];
+   int count=CollectManagedPositions(rows,true);
+   double floating=0;
+   for(int i=0;i<count;i++) floating+=rows[i].floatPL;
+   PositionRow beRows[],tpRows[];
+   int beCount=0,tpCount=0;
+   if(breakEvenShown)
+   {
+      if(breakEvenSide==tradeSide){ArrayCopy(beRows,rows);beCount=count;}
+      else beCount=CollectManagedPositionsForSide(beRows,breakEvenSide,true);
+      if(beCount==0) breakEvenShown=false;
+   }
+   if(takeProfitShown)
+   {
+      if(breakEvenShown && takeProfitSide==breakEvenSide){ArrayCopy(tpRows,beRows);tpCount=beCount;}
+      else if(takeProfitSide==tradeSide){ArrayCopy(tpRows,rows);tpCount=count;}
+      else tpCount=CollectManagedPositionsForSide(tpRows,takeProfitSide,true);
+      if(tpCount==0) takeProfitShown=false;
+   }
    ClampPanelGeometry();
    int x=8,y=7;
    DrawPanelObject("bg",OBJ_RECTANGLE_LABEL,0,0,460,PanelBaseHeight(),"",PanelBackground(),PanelBorder());
@@ -301,27 +349,8 @@ void RenderPanel()
    string trailCaption=trailingMode?StringFormat("Trailing 1R | sin SL %d | desconocido %d",trailingNoSL,trailingUnknown):"Trailing: Apagado";
    DrawPanelButton("trail",x,y,444,trailCaption,trailingMode?highlightColor:CSM_PANEL_NAVY);
    y+=29;
-   PositionRow rows[];
-   int count=CollectManagedPositions(rows,true);
-   double floating=0;
-   for(int i=0;i<count;i++) floating+=rows[i].floatPL;
    DrawPanelButton("scopeinfo",x,y,444,StringFormat("%s %s | %d posiciones | Flotante %+.2f",_Symbol,tradeSide>0?"Compras":"Ventas",count,floating));
    y+=29;
-   PositionRow beRows[],tpRows[];
-   int beCount=0,tpCount=0;
-   if(breakEvenShown)
-   {
-      if(breakEvenSide==tradeSide){ArrayCopy(beRows,rows);beCount=count;}
-      else beCount=CollectManagedPositionsForSide(beRows,breakEvenSide,true);
-      if(beCount==0) breakEvenShown=false;
-   }
-   if(takeProfitShown)
-   {
-      if(breakEvenShown && takeProfitSide==breakEvenSide){ArrayCopy(tpRows,beRows);tpCount=beCount;}
-      else if(takeProfitSide==tradeSide){ArrayCopy(tpRows,rows);tpCount=count;}
-      else tpCount=CollectManagedPositionsForSide(tpRows,takeProfitSide,true);
-      if(tpCount==0) takeProfitShown=false;
-   }
    ReadManagementPreview(beRows,false,bePreview);
    ReadManagementPreview(tpRows,true,tpPreview);
    DrawPanelButton("be",x,y,108,breakEvenShown?"X BE "+BESideCaption():"Break-even",breakEvenShown?highlightColor:CSM_PANEL_NAVY);
