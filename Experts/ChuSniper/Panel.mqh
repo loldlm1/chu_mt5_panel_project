@@ -87,7 +87,11 @@ string ManagementApplyCaption(const ManagementPreview &v,const bool isTP)
    if(!v.active) return "Aplicar "+tag;
    if(v.total>0 && v.exact==v.total) return tag+" aplicado";
    if(v.total>0 && v.exact+v.adapted==v.total) return tag+" adaptado";
-   if(v.canApply) return "Aplicar "+tag;
+   if(v.canApply)
+   {
+      int covered=v.exact+v.adapted;
+      return covered>0?StringFormat("Aplicar %d/%d",covered,v.total):"Aplicar "+tag;
+   }
    if(!v.known || v.total==0) return tag+" no disp.";
    if(isTP && (v.requested<=0 || (v.subset!=EMPTY_VALUE && v.subset<=0))) return tag+" no rentable";
    if(v.exact+v.adapted>0) return tag+" parcial";
@@ -101,8 +105,13 @@ color ManagementApplyColor(const ManagementPreview &v,const bool isTP)
 }
 string ManagementPreviewDetail(const ManagementPreview &v)
 {
-   return StringFormat("Exactos %d | Adaptados %d | Validas %d/%d | Cambios %d | Freeze %d | Otros %d | Desconocidos %d",
+   string detail=StringFormat("Exactos %d | Adaptados %d | Validas %d/%d | Cambios %d | Freeze %d | Otros %d | Desconocidos %d",
                        v.exact,v.adapted,v.valid,v.total,v.changes,v.frozen,v.invalid,v.unknown);
+   if(!v.active) return "Proyeccion desactivada";
+   if(!v.permitted) detail+=" | Trading no permitido";
+   else if(!v.known) detail+=" | Datos no disponibles";
+   else if(v.requested!=EMPTY_VALUE && v.subset!=EMPTY_VALUE && (v.requested<0 || v.subset<=0)) detail+=" | Revisar rentabilidad";
+   return detail;
 }
 void DrawManagementApply(const bool isTP,const int x,const int y,const ManagementPreview &v)
 {
@@ -120,11 +129,48 @@ void ReadManagementPreview(PositionRow &rows[],const bool isTP,ManagementPreview
                           isTP?takeProfitSide:breakEvenSide,isTP?takeProfitPrice:breakEvenPrice,
                           q,b,rulesKnown,TradePermissionsAllowed(),v);
 }
+// Informational fields occupy the same right-hand columns as units/amount.
+// "Validas" is the executable subset; "cubiertas" is actual exact/adapted
+// coverage, including exact-but-frozen tickets that cannot fund a new plan.
+void DrawTPMetrics(const int x,const int y,const ManagementPreview &v)
+{
+   int covered=v.exact+v.adapted;
+   string coverage="--",profit="--";
+   if(v.active && v.total>0)
+   {
+      if(covered>0) coverage=StringFormat("%d/%d cubiertas",covered,v.total);
+      else if(v.known) coverage=StringFormat("%d/%d validas",v.valid,v.total);
+      else coverage="No disponible";
+      if(v.subset!=EMPTY_VALUE && v.known)
+         profit=StringFormat("%+.2f %s",v.subset,AccountInfoString(ACCOUNT_CURRENCY));
+   }
+   color coverageInk=covered>0 && covered==v.total?buyColor:(v.active && v.known && v.valid<v.total?highlightColor:textColor);
+   color profitInk=v.known && v.subset!=EMPTY_VALUE?(v.subset>0?buyColor:v.subset<0?sellColor:textColor):textColor;
+   // Raw foreground retains meaningful positive/negative colors in either theme.
+   bool visible=!panelMinimized;
+   int font=(int)MathMax(6,MathMin(22,MathRound(10*panelDrawScale)));
+   int top=panelY+(int)MathRound(y*panelDrawScale),h=(int)MathMax(1,MathRound(25*panelDrawScale));
+   DrawPanelObjectRaw("tpcoverage",OBJ_BUTTON,panelX+(int)MathRound((x+222)*panelDrawScale),top,
+      (int)MathMax(1,MathRound(108*panelDrawScale)),h,coverage,PanelAccent(CSM_PANEL_NAVY),coverageInk,font,visible);
+   DrawPanelObjectRaw("tpnet",OBJ_BUTTON,panelX+(int)MathRound((x+334)*panelDrawScale),top,
+      (int)MathMax(1,MathRound(110*panelDrawScale)),h,profit,PanelAccent(CSM_PANEL_NAVY),profitInk,font,visible);
+   string detail=ManagementPreviewDetail(v);
+   ObjectSetString(0,PanelObjectName("tpcoverage"),OBJPROP_TOOLTIP,detail);
+   ObjectSetString(0,PanelObjectName("tpnet"),OBJPROP_TOOLTIP,
+      "P/L neto estimado del subconjunto valido a niveles efectivos (no garantizado) | "+detail);
+   ObjectSetInteger(0,PanelObjectName("tpcoverage"),OBJPROP_STATE,false);
+   ObjectSetInteger(0,PanelObjectName("tpnet"),OBJPROP_STATE,false);
+}
 void RefreshManagementApply(const bool isTP,PositionRow &rows[])
 {
    // Existing expanded row coordinates; hidden by DrawPanelObject in compact mode.
    int y=(isTP?326:297)+CSM_QUICK_EXTRA;
-   if(isTP){ReadManagementPreview(rows,true,tpPreview);DrawManagementApply(true,120,y,tpPreview);}
+   if(isTP)
+   {
+      ReadManagementPreview(rows,true,tpPreview);
+      DrawManagementApply(true,120,y,tpPreview);
+      DrawTPMetrics(8,y,tpPreview);
+   }
    else {ReadManagementPreview(rows,false,bePreview);DrawManagementApply(false,120,y,bePreview);}
 }
 bool ManagementApplyEnabled(const bool isTP){return isTP?tpPreview.canApply:bePreview.canApply;}
@@ -285,6 +331,7 @@ void RenderPanel()
    y+=29;
    DrawPanelButton("tp",x,y,108,takeProfitShown?"X TP "+TPSideCaption():"Take profit",takeProfitShown?infoColor:CSM_PANEL_NAVY);
    DrawManagementApply(true,x+112,y,tpPreview);
+   DrawTPMetrics(x,y,tpPreview);
    y+=29;
    DrawPanelButton("realize",x,y,218,"Realizar ganancia",infoColor);
    DrawPanelButton("close",x+222,y,222,closeConfirmationDeadline>GetTickCount64()?"Confirmar cerrar todo":"Cerrar todo",sellColor);

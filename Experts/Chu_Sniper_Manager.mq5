@@ -117,7 +117,12 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    }
    if(id!=CHARTEVENT_OBJECT_CLICK || chartLineDragging || panelGesture!=0 || suppressPanelClick) return;
    if(PriceLevelSlot(k)>=0 || !PanelControlVisible(k)) return;
-   if(k=="title" || k=="resize" || k=="bg" || k=="quickInfo" || k=="beinfo" || k=="tpinfo") return;
+   if(k=="title" || k=="resize" || k=="bg" || k=="quickInfo" || k=="beinfo" || k=="tpinfo" ||
+      k=="tpcoverage" || k=="tpnet")
+   {
+      ObjectSetInteger(0,sp,OBJPROP_STATE,false);
+      return;
+   }
    if(k=="minimize")
    {
       ObjectSetInteger(0,sp,OBJPROP_STATE,false);
