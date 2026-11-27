@@ -76,22 +76,31 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       if(k=="points")
       {
          editingStopPoints=false;
-         if(PanelInputNumber("points")>0)
+         double points=stopDistancePoints;
+         string input=PanelInputText("points");
+         if(input!=PanelNumberText(stopDistancePoints) && !ParseNonnegativePanelDecimal(input,points))
          {
-            stopDistancePoints=PanelInputNumber("points");fixedStopMode=true;
-            if(orderPrepared)
-            {
-               plannedStopLoss=csmPlannedEntry-tradeSide*stopDistancePoints*_Point;
-               if(riskRewardMode) plannedTakeProfit=csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio;
-            }
+            SetPanelInputText("points",DoubleToString(stopDistancePoints,16));
+            csmPanelStatus="SL invalido: valor anterior conservado";RenderPanel();return;
          }
+         // Use the retained precise numeric value when the caption is unchanged.
+         stopDistancePoints=points;fixedStopMode=true;
+         SetPanelInputText("points",DoubleToString(points,16));
+         if(orderPrepared)
+         {
+            plannedStopLoss=points==0?0:csmPlannedEntry-tradeSide*points*_Point;
+            if(riskRewardMode)
+               plannedTakeProfit=points==0?0:csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio;
+            else SeedManualTargetIfAbsent();
+         }
+         if(points==0) csmPanelStatus="SIN SL | riesgo no limitado por SL";
       }
       if(k=="ratio" && PanelInputNumber(k)>0)
       {
          rewardRiskRatio=PanelInputNumber(k);riskRewardMode=true;
-         if(orderPrepared) plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+         if(orderPrepared) plannedTakeProfit=stopDistancePoints==0?0:NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
       }
-      if(k=="riskval" || k=="amount" || k=="points" || k=="ratio")
+      if(k=="riskval" || k=="amount" || k=="ratio")
          SetPanelInputText(k,DoubleToString(PanelInputNumber(k),16));
       if(orderPrepared && (k=="points" || k=="ratio"))
       {
@@ -136,15 +145,18 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       pendingOrderMode=!pendingOrderMode;
       if(orderPrepared && pendingOrderMode)
       {
-         MqlTick q;
-         if(SymbolInfoTick(_Symbol,q))
+         MqlTick q;BrokerRules b;
+         if(SymbolInfoTick(_Symbol,q) && ValidBrokerQuote(q) && ReadBrokerRules(b))
          {
-            double entry=NormalizeTradePrice((tradeSide>0?q.ask:q.bid)+tradeSide*stopDistancePoints*_Point);
+            double entry=NormalizeTradePrice((tradeSide>0?q.ask:q.bid)+tradeSide*InitialPendingOffset(b));
             double delta=entry-csmPlannedEntry;
-            csmPlannedEntry=entry;
-            plannedStopLoss=NormalizeTradePrice(plannedStopLoss+delta);
-            plannedTakeProfit=NormalizeTradePrice(plannedTakeProfit+delta);
+            double nextSL=plannedStopLoss>0?NormalizeTradePrice(plannedStopLoss+delta):0;
+            double nextTP=plannedTakeProfit>0?NormalizeTradePrice(plannedTakeProfit+delta):0;
+            if((plannedStopLoss>0 && nextSL<=0) || (plannedTakeProfit>0 && nextTP<=0))
+            {pendingOrderMode=false;csmPanelStatus="Entrada proyectada invalida";}
+            else {csmPlannedEntry=entry;plannedStopLoss=nextSL;plannedTakeProfit=nextTP;}
          }
+         else {pendingOrderMode=false;csmPanelStatus="Sin cotizacion o reglas";}
       }
    }
    if(k=="percent" && riskMode!=0){riskMode=0;SetPanelInputText("riskval","1");}
@@ -153,8 +165,12 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
    if(k=="tpMode")
    {
       riskRewardMode=!riskRewardMode;
-      if(riskRewardMode && orderPrepared)
-         plannedTakeProfit=NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+      if(orderPrepared)
+      {
+         if(riskRewardMode)
+            plannedTakeProfit=stopDistancePoints==0?0:NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+         else SeedManualTargetIfAbsent();
+      }
    }
    if(orderPrepared && (k=="mode" || k=="tpMode"))
    {

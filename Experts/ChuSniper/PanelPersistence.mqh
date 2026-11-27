@@ -92,8 +92,9 @@ void LoadPanelState()
    double entry=StringToDouble(a[17]),sl=StringToDouble(a[18]),tp=StringToDouble(a[19]),be=StringToDouble(a[20]);
    double riskValue=StringToDouble(a[21]),amount=StringToDouble(a[22]);
    int count=(int)StringToInteger(a[23]);
+   bool pointsValid=ParseNonnegativePanelDecimal(a[15],points) && (hasTP || points>0);
    bool valid=(side==1 || side==-1) && risk>=0 && risk<=2 && trail>=0 && trail<=1 &&
-              scale>=0.65 && scale<=2.0 && points>0 && ratio>0 &&
+              scale>=0.65 && scale<=2.0 && pointsValid && ratio>0 &&
               ValidStateNumber(entry) && ValidStateNumber(sl) && ValidStateNumber(tp) && ValidStateNumber(be) &&
               MathIsValidNumber(points) && MathIsValidNumber(ratio) && count>=0 && count<=10000 && n==24+count*2+(hasTP?4:hasBESide?1:0) &&
               ValidStateNumber(riskValue) && ValidStateNumber(amount);
@@ -117,7 +118,14 @@ void LoadPanelState()
    panelY=(int)MathMax(0,MathMin(100000,StringToInteger(a[2])));
    panelScale=scale;
    panelMinimized=a[4]=="1";tradeSide=side;breakEvenSide=beSide;takeProfitSide=tpSide;takeProfitShown=tpShown;takeProfitPrice=tpLevel;riskMode=risk;trailingMode=trail;
-   groupMode=a[8]=="1";pendingOrderMode=a[9]=="1";orderPrepared=a[10]=="1" && entry>0 && sl>0 && tp>0;
+   groupMode=a[8]=="1";pendingOrderMode=a[9]=="1";
+   bool validDraftLevels=points>0?(sl>0 && tp>0):
+      (hasTP && sl==0 && (a[12]=="1"?tp==0:tp>0));
+   // Parsing malformed saved levels must not accidentally opt in to absent protection.
+   double checkedSL=0,checkedTP=0;
+   if(hasTP && (!ParseNonnegativePanelDecimal(a[18],checkedSL) ||
+                !ParseNonnegativePanelDecimal(a[19],checkedTP))) validDraftLevels=false;
+   orderPrepared=a[10]=="1" && entry>0 && validDraftLevels;
    fixedStopMode=a[11]=="1";riskRewardMode=a[12]=="1";percentTargetMode=a[13]=="1";breakEvenShown=a[14]=="1" && be>0;
    stopDistancePoints=points;rewardRiskRatio=ratio;csmPlannedEntry=entry;plannedStopLoss=sl;plannedTakeProfit=tp;breakEvenPrice=be;
    savedRiskText=a[21];savedPointsText=DoubleToString(points,16);savedRatioText=DoubleToString(ratio,16);savedAmountText=a[22];

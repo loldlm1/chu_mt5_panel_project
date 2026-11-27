@@ -84,7 +84,11 @@ void RenderPanel()
    DrawPanelInput("ratio",x+347,152+CSM_QUICK_EXTRA,97,savedRatioText);
    DrawPanelInput("amount",x+334,297+CSM_QUICK_EXTRA,110,savedAmountText);
    string riskCaption=riskMode==0?"% cuenta":riskMode==1?AccountInfoString(ACCOUNT_CURRENCY):"lotes";
-   DrawPanelButton("quickInfo",x,y,444,StringFormat("Rapido: %s %s | SL %s pts | R:B %s",PanelNumberText(PanelInputNumber("riskval")),riskCaption,PanelNumberText(stopDistancePoints),PanelNumberText(rewardRiskRatio)));
+   string quickInfo=stopDistancePoints==0?
+      StringFormat("SIN SL | riesgo no limitado | lote %s %s",riskMode==2?"fijo":"min.",
+                   PanelNumberText(riskMode==2?PanelInputNumber("riskval"):SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN))):
+      StringFormat("Rapido: %s %s | SL %s pts | R:B %s",PanelNumberText(PanelInputNumber("riskval")),riskCaption,PanelNumberText(stopDistancePoints),PanelNumberText(rewardRiskRatio));
+   DrawPanelButton("quickInfo",x,y,444,quickInfo,stopDistancePoints==0?highlightColor:CSM_PANEL_NAVY);
    y+=29;
    // Direction is retained when the draft is canceled. Active drafts use side ink.
    DrawPanelButton("buy",x,y,105,tradeSide>0?(orderPrepared?"X Comprar":"Comprar *"):"Comprar",
@@ -118,12 +122,18 @@ void RenderPanel()
    {
       if(pendingOrderMode) DrawPriceLevel("Entrada",csmPlannedEntry,buyColor,true);
       else ForgetPriceLevel("Entrada");
-      DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);
-      DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
+      if(plannedStopLoss>0) DrawPriceLevel("Stop loss",plannedStopLoss,sellColor,true);
+      else ForgetPriceLevel("Stop loss");
+      if(plannedTakeProfit>0) DrawPriceLevel("Take profit",plannedTakeProfit,infoColor,true);
+      else ForgetPriceLevel("Take profit");
       // The input remains the requested distance; the preview shows the effective SL.
       // Rendering does not change the operator's settings.
    }
-   DrawPanelButton("preview",x,y,444,valid?StringFormat("Lote %s | SL %s pts | Riesgo %.2f %s",PanelNumberText(lot),PanelNumberText(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point),loss,AccountInfoString(ACCOUNT_CURRENCY)):(orderPrepared?"Niveles/riesgo invalidos; revisa o confirma ajuste":"Prepara la orden y ajusta los niveles"));
+   string draftCaption=valid?(stopDistancePoints==0?
+      StringFormat("SIN SL | lote %s | riesgo no limitado",PanelNumberText(lot)):
+      StringFormat("Lote %s | SL %s pts | Riesgo %.2f %s",PanelNumberText(lot),PanelNumberText(MathAbs(csmPlannedEntry-plannedStopLoss)/_Point),loss,AccountInfoString(ACCOUNT_CURRENCY))):
+      (orderPrepared?(stopDistancePoints==0?"SIN SL | lote/niveles invalidos":"Niveles/riesgo invalidos; revisa o confirma ajuste"):"Prepara la orden y ajusta los niveles");
+   DrawPanelButton("preview",x,y,444,draftCaption,orderPrepared && stopDistancePoints==0?highlightColor:CSM_PANEL_NAVY);
    y+=29;
    DrawPanelButton("send",x,y,444,orderPrepared?"Confirmar "+OrderTypeCaption(type):"Confirmar orden",valid?buyColor:CSM_PANEL_NAVY);
    y+=29;

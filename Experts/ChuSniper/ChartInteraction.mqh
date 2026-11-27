@@ -65,13 +65,15 @@ string ChartLevelNearMouse(const int x,const int y)
 }
 void PreviewDraggedPrice(const double price)
 {
-   chartDragPrice=price;
    if(chartDragKey=="Entrada")
    {
+      double nextSL=chartDragStartSL>0?NormalizeTradePrice(chartDragStartSL+price-chartDragStartPrice):0;
+      double nextTP=chartDragStartTP>0?NormalizeTradePrice(chartDragStartTP+price-chartDragStartPrice):0;
+      if((chartDragStartSL>0 && nextSL<=0) || (chartDragStartTP>0 && nextTP<=0)) return;
       csmPlannedEntry=price;
-      plannedStopLoss=NormalizeTradePrice(chartDragStartSL+price-chartDragStartPrice);
-      plannedTakeProfit=NormalizeTradePrice(chartDragStartTP+price-chartDragStartPrice);
-      SetPriceLevel("Stop loss",plannedStopLoss);SetPriceLevel("Take profit",plannedTakeProfit);
+      plannedStopLoss=nextSL;plannedTakeProfit=nextTP;
+      if(nextSL>0) SetPriceLevel("Stop loss",nextSL);
+      if(nextTP>0) SetPriceLevel("Take profit",nextTP);
    }
    else if(chartDragKey=="Stop loss"){plannedStopLoss=price;fixedStopMode=false;riskRewardMode=false;}
    else if(chartDragKey=="Take profit"){plannedTakeProfit=price;riskRewardMode=false;}
@@ -83,6 +85,7 @@ void PreviewDraggedPrice(const double price)
       if(chartDragStartSL>0) DrawPriceLevel("DragPendingSL",NormalizeTradePrice(chartDragStartSL+delta),sellColor,false);
       if(chartDragStartTP>0) DrawPriceLevel("DragPendingTP",NormalizeTradePrice(chartDragStartTP+delta),infoColor,false);
    }
+   chartDragPrice=price;
    SetPriceLevel(chartDragKey,price);
    if(chartDragKey=="BE" || chartDragKey=="ManagedTP") RefreshManagementProjectionDuringDrag();
    ChartRedraw();
