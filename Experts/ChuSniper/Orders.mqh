@@ -35,7 +35,8 @@ bool CalculateOrderSize(const int direction,const bool pending,const MqlTick &q,
    if(intentionalNoSL)
    {
       // A percentage/cash budget cannot size an unprotected position.
-      double desired=riskMode==2?PanelInputNumber("riskval"):b.minVolume;
+      double desired=b.minVolume;
+      if(riskMode==2 && !ReadPanelDecimal("riskval",desired)) return false;
       double max=RemainingDirectionalVolume(direction,b);
       if(!MathIsValidNumber(desired) || desired<=0) return false;
       lot=NormalizeDouble(MathFloor(desired/b.stepVolume+1e-9)*b.stepVolume,8);
@@ -59,6 +60,7 @@ bool BuildOrderPlan(MqlTick &q, ENUM_ORDER_TYPE &type,double &lot,double &loss)
    type=SelectedOrderDirection();
    if(!pendingOrderMode) csmPlannedEntry=NormalizeTradePrice(tradeSide>0?q.ask:q.bid);
    if(pendingOrderMode) type=PendingOrderType(tradeSide>0,csmPlannedEntry,q);
+   if(stopDistancePoints==0 && (riskRewardMode?plannedTakeProfit!=0:plannedTakeProfit<=0)) return false;
    return CalculateOrderSize(tradeSide,pendingOrderMode,q,csmPlannedEntry,plannedStopLoss,plannedTakeProfit,lot,loss,stopDistancePoints==0);
 }
 // Explicit preparation/edit/confirm only. Rendering never moves locked SL/TP.
@@ -111,7 +113,8 @@ bool BuildProtectedRequest(const ENUM_ORDER_TYPE type,const double entry,const d
 int ProtectionMatch(const double sl,const double tp,const MqlTradeRequest &request)
 {
    if((request.sl>0 && sl<=0) || (request.tp>0 && tp<=0)) return -1;
-   if(!MathIsValidNumber(sl) || !MathIsValidNumber(tp) || sl<0 || tp<0) return -2;
+   if(!MathIsValidNumber(sl) || !MathIsValidNumber(tp) || sl<0 || tp<0 ||
+      (request.sl==0 && sl!=0) || (request.tp==0 && tp!=0)) return -2;
    BrokerRules b;
    if(!ReadBrokerRules(b)) return 0;
    if(PriceChanged(sl,request.sl,b) || PriceChanged(tp,request.tp,b)) return -2;
@@ -388,9 +391,16 @@ void AdjustBrokerPendingOrder(const string key,const double wantedPrice,const do
          (datetime)OrderGetInteger(ORDER_TIME_EXPIRATION)!=expiration)
       {csmPanelStatus="Pendiente cambio en broker";return;}
       bool changed=OrderSend(modify,result);
-      csmPanelStatus=(changed && (result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_NO_CHANGES))?
-            StringFormat("Pendiente #%I64u modificada",ticket):
-            "No se pudo modificar: "+result.comment;
+      if(changed && (result.retcode==TRADE_RETCODE_DONE || result.retcode==TRADE_RETCODE_NO_CHANGES))
+      {
+         bool verified=IsManagedPendingOrder(ticket) &&
+            (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE)==newType &&
+            !PriceChanged(OrderGetDouble(ORDER_PRICE_OPEN),price,b) &&
+            ProtectionMatch(OrderGetDouble(ORDER_SL),OrderGetDouble(ORDER_TP),modify)==1;
+         csmPanelStatus=verified?StringFormat("Pendiente #%I64u modificada",ticket):
+            "Pendiente aceptada: niveles no verificados; revisar";
+      }
+      else csmPanelStatus="No se pudo modificar: "+result.comment;
       return;
    }
 

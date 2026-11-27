@@ -22,6 +22,7 @@ int ApplyResolvedStop(const ulong ticket,const double wanted,const bool allowExa
    BrokerRules b;MqlTick q;
    if(!ReadBrokerRules(b) || !SymbolInfoTick(_Symbol,q) || !ValidBrokerQuote(q)) return -1;
    if(requireCrossedBE && !BEPriceCrossed(dir,q,wanted)) return 5;
+   if((b.orderModes&SYMBOL_ORDER_SL)==0) return 0;
    double level=0;
    int decision=ResolvePositionStop(dir,q,b,wanted,oldSL,oldTP,allowExactRetreat,level);
    if(decision!=1 && decision!=2) return decision;
@@ -300,26 +301,48 @@ int GetInitialRisk(const ulong identifier,const int direction,const double volum
       ArrayResize(initialRiskCache,key+1);
       initialRiskCache[key].identifier=identifier;
       initialRiskCache[key].checked=0;
-      initialRiskCache[key].volume=-1;
+      initialRiskCache[key].volume=-1;initialRiskCache[key].state=-1;
    }
-   // Volume changes can mean a late partial fill. Revalidate history, not SL.
-   if(MathAbs(initialRiskCache[key].volume-volume)>1e-8 ||
-      (initialRiskCache[key].state<0 && now-initialRiskCache[key].checked>=5000))
+   initialRiskCache[key].lastSeen=now;
+   // A verified terminal opening order cannot gain another fill. Preserve its
+   // original risk through partial closes; refresh only if volume grows or
+   // opening price changes, or when previously incomplete history can recover.
+   bool changed=initialRiskCache[key].volume<0 || volume>initialRiskCache[key].volume+1e-8 ||
+                (initialRiskCache[key].state>=0 && MathAbs(initialRiskCache[key].entry-currentEntry)>_Point);
+   if(changed || (initialRiskCache[key].state<0 && now-initialRiskCache[key].checked>=5000))
    {
       double origin=0,gap=0;
       int state=RecoverInitialRisk(identifier,direction,volume,currentEntry,origin,gap);
-      initialRiskCache[key].volume=volume;initialRiskCache[key].checked=now;
+      bool newlyUnknown=state<0 && (initialRiskCache[key].volume<0 || initialRiskCache[key].state>=0);
+      initialRiskCache[key].checked=now;
       initialRiskCache[key].entry=origin;initialRiskCache[key].distance=gap;
       initialRiskCache[key].state=state;
-      if(state<0) PrintFormat("CSM trailing #%I64u: SL inicial no verificable",identifier);
+      if(newlyUnknown) PrintFormat("CSM trailing #%I64u: SL inicial no verificable",identifier);
    }
+   initialRiskCache[key].volume=volume;
    entry=initialRiskCache[key].entry;distance=initialRiskCache[key].distance;
    return initialRiskCache[key].state;
+}
+// Bound the per-ticket arrays during long scalping sessions. No history scan.
+void PruneTrailingState()
+{
+   ulong now=GetTickCount64();
+   if(now-lastTrailingPrune<5000) return;
+   lastTrailingPrune=now;
+   for(int i=ArraySize(initialRiskCache)-1;i>=0;i--)
+      if(now-initialRiskCache[i].lastSeen>60000) ArrayRemove(initialRiskCache,i,1);
+   for(int i=ArraySize(trailingPositionTickets)-1;i>=0;i--)
+   {
+      if(SelectManagedTicket(trailingPositionTickets[i])) continue;
+      ArrayRemove(trailingPositionTickets,i,1);ArrayRemove(favorablePrices,i,1);
+      if(i<ArraySize(trailingRetryAfter)) ArrayRemove(trailingRetryAfter,i,1);
+   }
 }
 void UpdateTrailingStops()
 {
    trailingNoSL=0;trailingUnknown=0;
    if(!TradePermissionsAllowed() || trailingMode!=1) return;
+   PruneTrailingState();
    MqlTick quote;
    if(!SymbolInfoTick(_Symbol,quote) || !ValidBrokerQuote(quote)) return;
    // Trailing applies to every eligible ticket independently of groupMode or tradeSide.

@@ -16,12 +16,13 @@ ulong trailingRetryAfter[]; // transient server-rejection cooldown, never persis
 // The authoritative durable record is opening deal/order history, never current SL.
 struct InitialRiskRecord
 {
-   ulong identifier,checked;
+   ulong identifier,checked,lastSeen;
    double volume,entry,distance;
    int state;
 };
 InitialRiskRecord initialRiskCache[];
 int trailingNoSL=0,trailingUnknown=0;
+ulong lastTrailingPrune=0;
 #define CSM_PANEL_NAVY C'20,30,43'
 color textColor=C'225,232,241', highlightColor=C'255,215,49', infoColor=C'70,169,255', sellColor=C'255,100,100', buyColor=C'42,192,179';
 

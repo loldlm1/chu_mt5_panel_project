@@ -174,6 +174,14 @@ void DrawPanelInput(string k,int x,int y,int w,string s)
    if(fresh) SetPanelPrecisionHint(k,value);
 }
 string PanelInputText(string k){return ObjectGetString(0,PanelObjectName(k),OBJPROP_TEXT);}
+bool ReadPanelDecimal(const string key,double &value)
+{
+   string caption=PanelInputText(key),raw=PanelInputRaw(key);
+   double precise=0;
+   if(raw!="" && ParseNonnegativePanelDecimal(raw,precise) && caption==PanelNumberText(precise))
+   {value=precise;return true;}
+   return ParseNonnegativePanelDecimal(caption,value);
+}
 double PanelInputNumber(string k)
 {
    string text=PanelInputText(k),raw=PanelInputRaw(k);

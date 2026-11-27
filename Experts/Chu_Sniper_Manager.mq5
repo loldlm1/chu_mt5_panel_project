@@ -77,8 +77,7 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
       {
          editingStopPoints=false;
          double points=stopDistancePoints;
-         string input=PanelInputText("points");
-         if(input!=PanelNumberText(stopDistancePoints) && !ParseNonnegativePanelDecimal(input,points))
+         if(!ReadPanelDecimal("points",points))
          {
             SetPanelInputText("points",DoubleToString(stopDistancePoints,16));
             csmPanelStatus="SL invalido: valor anterior conservado";RenderPanel();return;
@@ -95,13 +94,21 @@ void OnChartEvent(const int id,const long &lp,const double &dp,const string &sp)
          }
          if(points==0) csmPanelStatus="SIN SL | riesgo no limitado por SL";
       }
-      if(k=="ratio" && PanelInputNumber(k)>0)
-      {
-         rewardRiskRatio=PanelInputNumber(k);riskRewardMode=true;
-         if(orderPrepared) plannedTakeProfit=stopDistancePoints==0?0:NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
-      }
       if(k=="riskval" || k=="amount" || k=="ratio")
-         SetPanelInputText(k,DoubleToString(PanelInputNumber(k),16));
+      {
+         double value=0;
+         if(!ReadPanelDecimal(k,value) || (k=="ratio" && value<=0))
+         {
+            SetPanelInputText(k,PanelInputRaw(k));
+            csmPanelStatus="Valor invalido: anterior conservado";RenderPanel();return;
+         }
+         SetPanelInputText(k,DoubleToString(value,16));
+         if(k=="ratio")
+         {
+            rewardRiskRatio=value;riskRewardMode=true;
+            if(orderPrepared) plannedTakeProfit=stopDistancePoints==0?0:NormalizeTradePrice(csmPlannedEntry+tradeSide*MathAbs(csmPlannedEntry-plannedStopLoss)*rewardRiskRatio);
+         }
+      }
       if(orderPrepared && (k=="points" || k=="ratio"))
       {
          bool adjusted=false;AdaptManualPlan(riskRewardMode,adjusted);
